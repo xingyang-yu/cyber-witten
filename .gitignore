@@ -19,10 +19,14 @@ data/hf_home/
 data/hf_cache/
 data/metadata/
 data/.backup_pre_script07/
+data/public_export/
 data/*.jsonl
 
 # Local backup snapshots (out-of-band, not for VCS)
 backups/
+
+# Claude Code session metadata
+.claude/
 
 # IDE
 .vscode/
