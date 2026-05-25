@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.cache/
+.venv/
+venv/
+
+# Env
+.env
+
+# Data (large files & reproducible artifacts — ship via HuggingFace, not git)
+data/sources/
+data/chunks/
+data/index/
+data/pdfs/
+data/hf_home/
+data/hf_cache/
+data/metadata/
+data/.backup_pre_script07/
+data/*.jsonl
+
+# Local backup snapshots (out-of-band, not for VCS)
+backups/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store

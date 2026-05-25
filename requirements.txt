@@ -1,0 +1,15 @@
+arxiv>=2.1.0
+faiss-cpu>=1.7.4
+numpy>=1.26,<2
+pylatexenc>=2.10
+anthropic>=0.40.0
+python-dotenv>=1.0.0
+tqdm>=4.66.0
+torch>=2.0.0
+transformers>=4.41,<5
+safetensors>=0.4.3
+huggingface-hub>=0.23,<1
+# pre-arXiv PDF pipeline (script 06)
+pdfplumber>=0.10.0
+pdf2image>=1.17.0
+pytesseract>=0.3.10
