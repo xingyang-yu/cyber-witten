@@ -3,6 +3,8 @@ faiss-cpu>=1.7.4
 numpy>=1.26,<2
 pylatexenc>=2.10
 anthropic>=0.40.0
+# Optional: install only if using --provider openai or --provider ollama
+# openai>=1.0.0
 python-dotenv>=1.0.0
 tqdm>=4.66.0
 torch>=2.0.0
