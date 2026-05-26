@@ -1,8 +1,8 @@
 # Cyber-Witten
 
-**A retrieval-augmented question-answering system grounded in Edward Witten's complete corpus.**
+**A retrieval-augmented question-answering system grounded in Edward Witten's papers.**
 
-12,998 chunks across 289 papers spanning 1976–2026 — every arXiv preprint plus 44 pre-arXiv journal papers recovered via an INSPIRE → Semantic Scholar → Unpaywall fallback chain. Local BGE-large embeddings, exact FAISS search, Claude Sonnet for grounded synthesis.
+12,998 chunks across 289 papers spanning 1976–2026 — his arXiv corpus plus 44 pre-arXiv journal papers recovered via an INSPIRE → Semantic Scholar → Unpaywall fallback chain. Pre-1991 coverage is partial (see [Known limitations](#known-limitations)). Local BGE-large embeddings, exact FAISS search, Claude Sonnet for grounded synthesis.
 
 ---
 
