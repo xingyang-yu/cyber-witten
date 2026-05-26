@@ -8,9 +8,13 @@
 
 ## Why
 
-Witten has published continuously for fifty years across QFT, string theory, topology, and mathematical physics. A general-purpose LLM has read a lot *about* him; this system reads only *him*, and is required to cite the specific paper for every claim. The goal is a tool that answers technical physics questions with the same constraint a careful reader would impose: nothing said without a passage to back it up.
+General-purpose LLMs fail in specialist technical domains in two compounding ways: their training corpus mixes careful work with speculative work, and at generation time they have no mechanism to weight one over the other. The output is fluent, confident, and sometimes wrong in ways only a domain expert can catch — a steep tax on every "let me ask the model" interaction in fields like physics, medicine, or law.
 
-The project was built as a portfolio piece to demonstrate end-to-end RAG engineering: ingestion under messy real-world data conditions (LaTeX, scanned PDFs, missing IDs), domain-aware retrieval, and strict grounded generation.
+Theoretical physics is an extreme case. The hep-th literature spans foundational papers and decades of follow-on speculation; past a certain corpus-quality threshold, more text stops helping. Witten's papers — fifty years of continuously cited work from arguably the most influential living theoretical physicist — sit at the high-signal end. They make a clean testbed for an AI4Science question worth answering generally: how much does answer quality improve when you constrain the model to a curated high-signal corpus and require it to cite, instead of scaling the corpus or the parameters?
+
+Cyber-Witten is the working answer. The system is required to answer using only retrieved passages, cite each claim by paper ID, and fail explicitly when the passages don't support the answer — no fluent improvisation, no fallback to general training knowledge. The principle generalizes beyond physics: for any expert domain where the literature has wide quality variance, corpus curation and epistemic constraint may matter as much as model scale.
+
+This repo is the worked example: end-to-end ingestion under messy real-world conditions (LaTeX sources, scanned pre-1991 PDFs, version-suffix ID drift), domain-aware retrieval, strict citation prompting, and a pluggable LLM backend showing the same principle holds across vendors.
 
 ---
 
