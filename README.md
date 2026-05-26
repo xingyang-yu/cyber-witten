@@ -2,7 +2,7 @@
 
 **A retrieval-augmented question-answering system grounded in Edward Witten's papers.**
 
-12,998 chunks across 289 papers spanning 1976–2026 — his arXiv corpus plus 44 pre-arXiv journal papers recovered via an INSPIRE → Semantic Scholar → Unpaywall fallback chain. Pre-1991 coverage is partial (see [Known limitations](#known-limitations)). Local BGE-large embeddings, exact FAISS search, Claude Sonnet for grounded synthesis.
+12,998 chunks across 289 papers spanning 1976–2026 — his arXiv corpus plus 44 pre-arXiv journal papers recovered via an INSPIRE → Semantic Scholar → Unpaywall fallback chain. Pre-1991 coverage is partial (see [Known limitations](#known-limitations)). Local BGE-large embeddings, exact FAISS search, and a pluggable LLM backend (Claude Sonnet by default; OpenAI or local Ollama via one flag) for grounded synthesis.
 
 ---
 
@@ -48,7 +48,7 @@ Three real queries against the local index. Each table shows the top-5 retrieval
 | 0.761 | [2301.07257](https://arxiv.org/abs/2301.07257) | 2023 | Algebras and States in JT Gravity |
 | 0.761 | [2412.15549](https://arxiv.org/abs/2412.15549) | 2024 | Algebras and states in super-JT gravity |
 
-The retriever picks the canonical paper for each topic (1991 mirror-manifolds, 2020 JT-gravity-deformations) and stays within Witten's own work across a 35-year span. The generation step (top-K → Claude Sonnet) requires `ANTHROPIC_API_KEY`; retrieval alone runs in <200ms per query on a laptop once the model is warm.
+The retriever picks the canonical paper for each topic (1991 mirror-manifolds, 2020 JT-gravity-deformations) and stays within Witten's own work across a 35-year span. The generation step (top-K → LLM) needs a key for whichever backend you pick (Anthropic by default; OpenAI or local Ollama via `--provider`); retrieval alone needs no key and no LLM at all (`--retrieve-only`), and runs in <200ms per query on a laptop once the model is warm.
 
 ---
 
@@ -89,7 +89,8 @@ The retriever picks the canonical paper for each topic (1991 mirror-manifolds, 2
               │                                                      │
               │   question ─▶ BGE encode (with query prefix) ─▶ top-K│
               │                                                      │
-              │   passages + strict system prompt ─▶ Claude Sonnet   │
+              │   passages + strict system prompt ─▶ LLM backend     │
+              │     (anthropic | openai | ollama; pluggable)         │
               │   ──▶ grounded answer with inline [arxiv_id] cites   │
               └──────────────────────────────────────────────────────┘
 ```
