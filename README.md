@@ -119,12 +119,25 @@ cp .env.example .env
 .venv/bin/python scripts/healthcheck.py --embed
 ```
 
-**Ask a question**:
+**Ask a question** (default backend: Claude Sonnet via Anthropic):
 
 ```bash
 .venv/bin/python ask.py "What is the relation between Chern-Simons theory and the Jones polynomial?"
 .venv/bin/python ask.py "..." --show-passages    # also print retrieved passages
 .venv/bin/python ask.py "..." -k 12              # retrieve more
+```
+
+**Skip generation entirely** (no LLM call, no API key, no cost — useful for retrieval inspection or building a passage-only demo):
+
+```bash
+.venv/bin/python ask.py "..." --retrieve-only
+```
+
+**Swap LLM backend** (see [Generation backends](#generation-backends-pluggable)):
+
+```bash
+.venv/bin/python ask.py "..." --provider openai --model gpt-4o            # needs OPENAI_API_KEY + `pip install openai`
+.venv/bin/python ask.py "..." --provider ollama --model llama3.1:8b       # local Ollama, no key, free
 ```
 
 The BGE model is auto-resolved from `~/.cache/huggingface` if present, otherwise downloaded. Override with `BGE_MODEL_PATH=/path/to/snapshot`.
@@ -201,6 +214,20 @@ The system prompt in `ask.py` is the load-bearing piece of the generation step:
 
 Combined with required inline citations (`[hep-th/9112056]`, `[1106.4789]`, `[inspire:264818]`), this makes hallucination visible: a claim without a bracketed ID is, by construction, a violation. Speculative bridging beyond the corpus must be marked `[outside corpus]`.
 
+### Generation backends (pluggable)
+
+The generation step is the only LLM-dependent piece in the whole pipeline; the retrieval/chunking/format work above it is provider-agnostic. `scripts/llm_backends.py` defines a small `LLMBackend` protocol and ships three implementations:
+
+| Backend | Default model | Auth | When to use |
+|---|---|---|---|
+| `anthropic` (default) | `claude-sonnet-4-6` | `ANTHROPIC_API_KEY` | Best citation discipline; sponsor model |
+| `openai` | `gpt-4o` | `OPENAI_API_KEY` | When you'd rather not stand up an Anthropic account |
+| `ollama` | `llama3.1:8b` | none (local) | Zero cost, fully offline, demos and CI |
+
+The OpenAI-compatible adapter also reaches Together/Groq/Fireworks/vLLM by setting `base_url` — adding a new provider is a 4-line subclass. `--retrieve-only` short-circuits the whole generation step, so the retrieval half of Cyber-Witten runs with no key and no LLM dependency at all (useful for HuggingFace Space demos or just inspecting what the index returns).
+
+The third-party SDKs are lazy-imported: only the backends you actually use need to be `pip install`ed.
+
 ---
 
 ## Pipeline (scripts in execution order)
@@ -215,6 +242,7 @@ Combined with required inline citations (`[hep-th/9112056]`, `[1106.4789]`, `[in
 | `06_pre_arxiv.py` | INSPIRE + S2 + Unpaywall fallback for pre-1991 papers |
 | `07_ingest_manual_pdfs.py` | Resolve manually dropped PDFs (filename → INSPIRE) |
 | `bge_embed.py` | BGE helpers used by 04/05/06/07 and `ask.py` |
+| `llm_backends.py` | Pluggable LLM provider adapters (anthropic / openai / ollama) used by `ask.py` |
 | `healthcheck.py` | Fast corpus + retrieval sanity check |
 | `export_public.py` | Drop `inspire:*` rows → arXiv-only redistribution bundle |
 
@@ -254,6 +282,7 @@ echo "2605.15180" >> /tmp/missing_arxiv_ids.txt
 - **Pre-arXiv recall is incomplete.** 44 of ~70 pre-1991 papers were recovered. The rest are paywalled in ways the fallback chain couldn't break, or are conference proceedings without DOIs.
 - **OCR quality on early scans is mixed.** Pre-1985 papers sometimes have noisy passages where tesseract misread Greek letters and mathematical symbols. These show up in retrieval but degrade readability.
 - **Citation-grounding is enforced by prompting, not by post-hoc validation.** A truly safe system would parse the model output, verify each `[id]` resolves to a passage that was actually retrieved, and refuse the response otherwise. Deferred.
+- **Citation discipline varies by backend.** Claude Sonnet (default) follows the strict-citation system prompt near-perfectly; GPT-4o is close behind; smaller open models served via Ollama (Llama-3.1-8B and the like) violate the rule more often. The forthcoming citation validator (above) will catch this independent of backend, but until then, treat the default backend as the recommended one for serious answers.
 
 ---
 
@@ -273,9 +302,10 @@ echo "2605.15180" >> /tmp/missing_arxiv_ids.txt
 ```
 .
 ├── README.md            this file
-├── ask.py               query entrypoint: retrieve → Claude → grounded answer
+├── ask.py               query entrypoint: retrieve → LLM (pluggable) → grounded answer
 ├── requirements.txt     pinned runtime deps
 ├── .env.example         ANTHROPIC_API_KEY + optional BGE_MODEL_PATH
+├── LICENSE              MIT
 ├── scripts/
 │   ├── 01_pull_metadata.py
 │   ├── 02_download_sources.py
@@ -285,6 +315,7 @@ echo "2605.15180" >> /tmp/missing_arxiv_ids.txt
 │   ├── 06_pre_arxiv.py
 │   ├── 07_ingest_manual_pdfs.py
 │   ├── bge_embed.py
+│   ├── llm_backends.py
 │   ├── healthcheck.py
 │   └── export_public.py
 └── data/                gitignored — large artifacts shipped via HuggingFace
