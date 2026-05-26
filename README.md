@@ -98,6 +98,8 @@ The retriever picks the canonical paper for each topic (1991 mirror-manifolds, 2
 
 ## Quick start
 
+> **Status**: this repo ships **code only**. The ~100 MB `data/` artifacts (FAISS index, chunks, paper metadata) are not committed and not yet published as a downloadable bundle — a public HuggingFace export is on the roadmap; `scripts/export_public.py` already produces the redistribution-safe bundle locally. To run end-to-end today, build the corpus yourself from the [Pipeline](#pipeline-scripts-in-execution-order) (scripts 01–04, a few hours on a laptop). The instructions below assume you've done that.
+
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
