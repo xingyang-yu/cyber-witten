@@ -12,7 +12,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      # The citation-grounding validator is pure stdlib (no torch/faiss/network),
-      # so its unit tests run with no install step and gate every push.
+      # The validator and the guardrail retry-loop are pure stdlib (no
+      # torch/faiss/network), so their unit tests run with no install step.
       - name: Citation-validator unit tests
         run: python -m evals.test_validator
+      - name: Guardrail retry-loop unit tests
+        run: python -m scripts.test_guardrail

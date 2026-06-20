@@ -99,11 +99,17 @@ def search(question: str, k: int) -> str:
 
 with gr.Blocks(title="Cyber-Witten — retrieval demo") as demo:
     gr.Markdown(
-        "# 🔭 Cyber-Witten — retrieval demo\n"
-        "Semantic search over **Edward Witten's arXiv papers** "
-        f"({_index.ntotal:,} passages, BGE-large + FAISS). "
-        "Retrieval only — no LLM, no API key. The grounded-answer step lives in the "
-        "[local app](https://github.com/xingyang-yu/cyber-witten)."
+        "# 🔭 Cyber-Witten · search Witten's papers\n"
+        "Ask a physics question and this finds the most relevant passages from "
+        f"**Edward Witten's papers** (his full arXiv corpus, {_index.ntotal:,} passages), "
+        "ranked by meaning rather than keywords.\n\n"
+        "It is a **finder, not a chatbot**: it returns the source passages (with arXiv links) "
+        "that best match your question, it does not write an answer for you. The "
+        "answer-writing version, which cites every claim and refuses when the papers don't "
+        "support it, is the downloadable [local app](https://github.com/xingyang-yu/cyber-witten) "
+        "and uses no paid API.\n\n"
+        "_Pick an example below or type your own. The first search after the demo has been idle "
+        "can take a minute while the model loads._"
     )
     with gr.Row():
         question = gr.Textbox(label="Question", scale=4, placeholder="Ask about Witten's physics…")

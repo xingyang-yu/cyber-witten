@@ -85,6 +85,9 @@ def main():
                     help="Model name override (default: backend's pick)")
     ap.add_argument("--retrieve-only", action="store_true",
                     help="Print top-K passages and exit — no LLM call, no key needed")
+    ap.add_argument("--guardrail", action="store_true",
+                    help="Enforce citation grounding: reject and regenerate an answer that "
+                         "cites a paper not in the retrieved set (see scripts/guardrail.py)")
     args = ap.parse_args()
 
     if not args.question:
@@ -116,12 +119,24 @@ def main():
         "Answer the question using only the passages above. Cite each claim."
     )
 
-    answer = backend.generate(SYSTEM_PROMPT, user_msg, max_tokens=2048)
+    report = None
+    if args.guardrail:
+        from scripts.guardrail import generate_grounded
+        retrieved_ids = [p["arxiv_id"] for _, p in passages]
+        answer, report = generate_grounded(
+            backend, SYSTEM_PROMPT, user_msg, retrieved_ids, max_tokens=2048
+        )
+    else:
+        answer = backend.generate(SYSTEM_PROMPT, user_msg, max_tokens=2048)
 
     print("=" * 70)
     print(f"CYBER-WITTEN  ({backend.name} / {backend.model})")
     print("=" * 70)
     print(answer)
+    if report and not report["grounded"]:
+        bad = ", ".join(report["validation"]["invalid_citations"])
+        print(f"\n⚠  ungrounded after {report['attempts']} attempts: "
+              f"cited {bad} not in the retrieved passages.")
     print()
 
 
