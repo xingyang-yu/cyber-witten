@@ -149,6 +149,21 @@ The BGE model is auto-resolved from `~/.cache/huggingface` if present, otherwise
 
 ---
 
+## Apps
+
+Two ways to use the corpus, split deliberately (the "no LLM API" goal makes free hosted *generation* impractical, so the online demo stays retrieval-only):
+
+- **Online retrieval demo** (`space/`). A free, no-key Gradio Space: type a question, see the passages the retriever surfaces, with arXiv links. No LLM. Deploy steps in `space/README.md`.
+- **Local QA app** (`app_local.py`). The full grounded experience, fully local and no API: retrieval + a local LLM (Ollama) + the [citation guardrail](#evaluation), answers cited by paper ID (clickable). Generation runs on your machine, so a guarded query takes roughly 1-3 minutes.
+  ```bash
+  pip install gradio openai          # gradio = UI, openai = Ollama transport
+  brew install ollama && ollama serve
+  ollama pull qwen2.5:7b
+  python app_local.py                # opens a local web UI
+  ```
+
+---
+
 ## Corpus
 
 | | |
