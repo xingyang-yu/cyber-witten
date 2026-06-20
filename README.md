@@ -278,6 +278,26 @@ echo "2605.15180" >> /tmp/missing_arxiv_ids.txt
 
 ---
 
+## Evaluation
+
+The generation step's whole promise is *grounding*: answer only from retrieved passages, cite every claim by paper ID, and fail explicitly when the corpus doesn't support an answer. `evals/` is the instrument that measures whether that promise actually holds, instead of assuming the prompt is obeyed.
+
+- **Citation grounding validator** (`evals/validator.py`). Parses an answer, extracts bracketed paper IDs, and checks each against the passages actually retrieved that turn. A citation to a paper that was never retrieved is a grounding violation, made visible. It also separates *retrieval recall* (did the right paper surface at all?) from *citation behavior* (did the model cite only what it was given?), so a failure can be pinned on retrieval vs. generation. Pure text-in / metrics-out, unit-tested, no model or API key needed.
+- **Expert gold set** (`evals/gold/gold_set.jsonl`). 23 physics questions over the corpus: 19 in-corpus questions, each tagged with the paper(s) a correct answer must rest on, plus 4 adversarial out-of-corpus probes (questions just outside Witten's work, designed to test whether the system declines rather than confabulates). Each row carries `key_claims` and authoring notes; a domain expert scores correctness and faithfulness on a 0/1/2 rubric (`evals/rubric.py`). See `evals/gold/README.md` for the authoring guide.
+- **RAG vs no-RAG ablation** (`evals/run_eval.py --baseline`). Runs each question twice on the same model: once with retrieval and the strict-citation prompt, once closed-book with no passages. This turns the project's central claim (that grounding buys answer quality and suppresses confabulation) into a measured number rather than an assertion.
+- **Title to ID resolver** (`evals/resolve_citations.py`). Maps a paper title plus year to its corpus arXiv/inspire ID, so a gold set drafted by title can be validated against what the index actually contains.
+
+```bash
+.venv/bin/python -m evals.test_validator                              # validator unit tests (no data/model)
+.venv/bin/python -m evals.run_eval --retrieve-only                    # no key: retrieval recall per question
+.venv/bin/python -m evals.run_eval --providers anthropic --baseline   # RAG vs closed-book, scored
+.venv/bin/python -m evals.run_eval --report evals/results/<run>.jsonl  # re-render tables after human scoring
+```
+
+The validator currently *measures* grounding offline. Wiring the same check into `ask.py` as a live serving-time guardrail (reject and regenerate an ungrounded answer) is the natural next step; see [Future work](#future-work).
+
+---
+
 ## Known limitations
 
 - **Equations are lossy.** LaTeX → text via `pylatexenc` preserves most math semantics but flattens display equations. Queries about specific equation forms (e.g. "what is the exact action in equation 2.7 of...") retrieve the right passage but the rendered text isn't pretty.
@@ -286,16 +306,16 @@ echo "2605.15180" >> /tmp/missing_arxiv_ids.txt
 - **No query rewriting.** A question like "what did he say about that black hole thing in '83?" relies on the BGE encoder to disambiguate. A small LLM rewriting step would help; deferred.
 - **Pre-arXiv recall is incomplete.** 44 of ~70 pre-1991 papers were recovered. The rest are paywalled in ways the fallback chain couldn't break, or are conference proceedings without DOIs.
 - **OCR quality on early scans is mixed.** Pre-1985 papers sometimes have noisy passages where tesseract misread Greek letters and mathematical symbols. These show up in retrieval but degrade readability.
-- **Citation-grounding is enforced by prompting, not by post-hoc validation.** A truly safe system would parse the model output, verify each `[id]` resolves to a passage that was actually retrieved, and refuse the response otherwise. Deferred.
-- **Citation discipline varies by backend.** Claude Sonnet (default) follows the strict-citation system prompt near-perfectly; GPT-4o is close behind; smaller open models served via Ollama (Llama-3.1-8B and the like) violate the rule more often. The forthcoming citation validator (above) will catch this independent of backend, but until then, treat the default backend as the recommended one for serious answers.
+- **Citation-grounding is checked offline, not yet at serving time.** The [Evaluation](#evaluation) harness now does the post-hoc check (parse the output, verify each `[id]` was actually retrieved) to *measure* grounding. Running that same check inside `ask.py` as a live guardrail that rejects and regenerates an ungrounded answer is still to do.
+- **Citation discipline varies by backend.** Claude Sonnet (default) follows the strict-citation system prompt near-perfectly; GPT-4o is close behind; smaller open models served via Ollama (Llama-3.1-8B and the like) violate the rule more often. The validator (see [Evaluation](#evaluation)) now makes this measurable independent of backend; until a live guardrail is wired in, treat the default backend as the recommended one for serious answers.
 
 ---
 
 ## Future work
 
 - **Pre-1991 OCR cleanup pipeline.** Equation-aware OCR (Mathpix, Nougat) on the scan-quality outliers to lift retrieval quality on the 1976–1985 papers.
-- **Citation validator.** Parse model output, regex out `[id]` tokens, verify membership in the retrieved set, refuse non-grounded responses.
-- **Cross-encoder reranker.** BGE-reranker-v2 over top-50 → top-K=8, evaluate retrieval@k on a hand-curated query set.
+- **Live citation guardrail.** The validator already exists for offline measurement (see [Evaluation](#evaluation)); the remaining step is to run it inside `ask.py` so an ungrounded answer is rejected and regenerated at serving time, not just flagged afterward.
+- **Cross-encoder reranker.** BGE-reranker-v2 over top-50 → top-K=8, now measurable against the gold set (`evals/gold/`) to confirm it actually lifts retrieval@k.
 - **HuggingFace Space (retrieval-only).** Public Gradio demo of the retriever using the `export_public.py` bundle; no LLM key required.
 - **Fine-tuned BGE.** Self-supervised contrastive fine-tune on (paper-title, abstract) pairs from the corpus to specialize the embedder for physics vocabulary. Open question whether the gain over the off-the-shelf checkpoint justifies the engineering.
 - **Distillation.** Train a small open-weight model on (question, retrieved-passages, grounded-answer) triples generated by Claude, for a fully-local end-to-end system. Possibly out of scope; included for discussion.
@@ -323,6 +343,13 @@ echo "2605.15180" >> /tmp/missing_arxiv_ids.txt
 │   ├── llm_backends.py
 │   ├── healthcheck.py
 │   └── export_public.py
+├── evals/               grounding eval harness
+│   ├── validator.py     citation-grounding check (pure, unit-tested)
+│   ├── rubric.py        0/1/2 human rubric + report aggregation
+│   ├── run_eval.py      batch runner: --baseline (RAG vs no-RAG), --retrieve-only, --report
+│   ├── resolve_citations.py   paper title+year → corpus ID
+│   ├── test_validator.py
+│   └── gold/            gold_set.jsonl (23 expert questions) + authoring README
 └── data/                gitignored — large artifacts shipped via HuggingFace
     ├── metadata/papers.jsonl
     ├── sources/         arXiv source tarballs
