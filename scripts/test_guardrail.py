@@ -28,25 +28,45 @@ class MockBackend:
 def test_passes_first_try_when_grounded():
     b = MockBackend(["Grounded claim [1106.4789]."])
     ans, rep = generate_grounded(b, "sys", "user", ["1106.4789"])
-    assert rep["grounded"] and rep["attempts"] == 1 and b.calls == 1
+    assert rep["grounded"] and rep["problem"] is None and rep["attempts"] == 1 and b.calls == 1
 
 
-def test_retries_then_succeeds():
+def test_fabrication_retries_then_succeeds():
     b = MockBackend(["Bad [hep-th/9999999].", "Fixed [1106.4789]."])
     ans, rep = generate_grounded(b, "sys", "user", ["1106.4789"], max_retries=2)
     assert rep["grounded"] and rep["attempts"] == 2 and b.calls == 2 and "1106.4789" in ans
 
 
-def test_gives_up_after_max_retries():
+def test_fabrication_gives_up_after_max_retries():
     b = MockBackend(["Always bad [hep-th/9999999]."])
     ans, rep = generate_grounded(b, "sys", "user", ["1106.4789"], max_retries=2)
-    assert not rep["grounded"] and rep["attempts"] == 3 and b.calls == 3  # 1 + 2 retries
+    assert not rep["grounded"] and rep["problem"] == "fabricated" and rep["attempts"] == 3 and b.calls == 3
 
 
 def test_refusal_with_no_citations_passes():
     b = MockBackend(["The passages do not support an answer to this question."])
     ans, rep = generate_grounded(b, "sys", "user", ["1106.4789"])
     assert rep["grounded"] and rep["validation"]["uncited"] and b.calls == 1
+
+
+def test_uncited_substantive_triggers_retry():
+    # The small-model failure mode: a confident prose answer with no citations.
+    b = MockBackend(["Chern-Simons theory yields the Jones polynomial.", "Now grounded [1106.4789]."])
+    ans, rep = generate_grounded(b, "sys", "user", ["1106.4789"], max_retries=2)
+    assert rep["grounded"] and rep["attempts"] == 2 and b.calls == 2
+
+
+def test_uncited_substantive_gives_up():
+    b = MockBackend(["Chern-Simons theory yields the Jones polynomial."])
+    ans, rep = generate_grounded(b, "sys", "user", ["1106.4789"], max_retries=2)
+    assert not rep["grounded"] and rep["problem"] == "uncited" and b.calls == 3
+
+
+def test_require_citation_false_allows_uncited():
+    # Out-of-corpus probe: a correct refusal/short answer should not be forced to cite.
+    b = MockBackend(["This is outside the scope of the provided material."])
+    ans, rep = generate_grounded(b, "sys", "user", ["1106.4789"], require_citation=False)
+    assert rep["grounded"] and b.calls == 1
 
 
 def _run():

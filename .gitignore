@@ -22,6 +22,9 @@ data/.backup_pre_script07/
 data/public_export/
 data/*.jsonl
 
+# Eval run artifacts (generated answers + scores; not source)
+evals/results/
+
 # Local backup snapshots (out-of-band, not for VCS)
 backups/
 

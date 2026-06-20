@@ -134,9 +134,12 @@ def main():
     print("=" * 70)
     print(answer)
     if report and not report["grounded"]:
-        bad = ", ".join(report["validation"]["invalid_citations"])
-        print(f"\n⚠  ungrounded after {report['attempts']} attempts: "
-              f"cited {bad} not in the retrieved passages.")
+        if report["problem"] == "fabricated":
+            bad = ", ".join(report["validation"]["invalid_citations"])
+            detail = f"cited {bad} not in the retrieved passages"
+        else:
+            detail = "gave a substantive answer with no citations"
+        print(f"\n⚠  ungrounded after {report['attempts']} attempts: {detail}.")
     print()
 
 

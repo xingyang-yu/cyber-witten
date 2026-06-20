@@ -105,12 +105,15 @@ CLOSED_BOOK_SYSTEM = """You are a theoretical physics expert, deeply familiar wi
 """
 
 
-def run(providers: list[str], gold: list[dict], conditions: list[str], k: int, max_tokens: int) -> list[dict]:
+def run(providers: list[str], gold: list[dict], conditions: list[str], k: int,
+        max_tokens: int, guardrail: bool = False, model: str | None = None) -> list[dict]:
     from ask import SYSTEM_PROMPT, format_passages
     from scripts.llm_backends import get_backend
+    if guardrail:
+        from scripts.guardrail import generate_grounded
 
     # Fail fast on missing keys before the expensive index load.
-    backends = [get_backend(p) for p in providers]
+    backends = [get_backend(p, model) for p in providers]
     retrieve = build_retriever(k) if "rag" in conditions else None
 
     records: list[dict] = []
@@ -140,13 +143,18 @@ def run(providers: list[str], gold: list[dict], conditions: list[str], k: int, m
         for backend in backends:
             for condition in conditions:
                 system, user_msg, retrieved_ids = prompts[condition]
-                print(f"  [{backend.name}/{condition}] {q['qid']} ...", end="", flush=True)
+                # Guardrail only applies to RAG (closed-book has no retrieved set,
+                # so every citation would "violate"). Label it distinctly so the
+                # report compares ollama·rag vs ollama·rag+guard.
+                use_guard = guardrail and condition == "rag"
+                cond_label = "rag+guard" if use_guard else condition
+                print(f"  [{backend.name}/{cond_label}] {q['qid']} ...", end="", flush=True)
                 rec = {
                     "qid": q["qid"],
                     "question": q["question"],
                     "type": q.get("type", "in_corpus"),
                     "backend": backend.name,
-                    "condition": condition,
+                    "condition": cond_label,
                     "model": backend.model,
                     "k": k if condition == "rag" else 0,
                     "retrieved_ids": retrieved_ids,
@@ -155,7 +163,15 @@ def run(providers: list[str], gold: list[dict], conditions: list[str], k: int, m
                 }
                 t0 = time.time()
                 try:
-                    answer = backend.generate(system, user_msg, max_tokens=max_tokens)
+                    if use_guard:
+                        answer, gr = generate_grounded(
+                            backend, system, user_msg, retrieved_ids, max_tokens=max_tokens,
+                            require_citation=(rec["type"] != "out_of_corpus"),
+                        )
+                        rec["guardrail"] = {"grounded": gr["grounded"], "problem": gr["problem"],
+                                            "attempts": gr["attempts"]}
+                    else:
+                        answer = backend.generate(system, user_msg, max_tokens=max_tokens)
                     rec["answer"] = answer
                     rec["auto"] = validate_citations(answer, retrieved_ids, expected)
                     rec["latency_s"] = round(time.time() - t0, 2)
@@ -235,6 +251,12 @@ def main() -> None:
     ap.add_argument("-k", type=int, default=8, help="Top-K passages (matches ask.py default)")
     ap.add_argument("--baseline", action="store_true",
                     help="Also run each backend closed-book (no retrieval) as a no-RAG baseline")
+    ap.add_argument("--guardrail", action="store_true",
+                    help="Route RAG generation through the citation guardrail (regenerate on "
+                         "violation); labeled rag+guard so it compares against plain rag")
+    ap.add_argument("--model", default=None,
+                    help="Override the model for the backend(s), e.g. qwen2.5:7b for ollama "
+                         "(applies to all --providers; use with a single provider)")
     ap.add_argument("--max-tokens", type=int, default=2048)
     ap.add_argument("--limit", type=int, default=None, help="Only run the first N gold questions")
     ap.add_argument("--out", type=Path, default=None, help="Run file path (default: timestamped)")
@@ -261,8 +283,10 @@ def main() -> None:
     providers = [p.strip() for p in args.providers.split(",") if p.strip()]
     conditions = ["rag"] + (["closed_book"] if args.baseline else [])
 
-    print(f"Running {len(gold)} questions x {len(providers)} backend(s) x {conditions}: {providers}\n")
-    records = run(providers, gold, conditions, args.k, args.max_tokens)
+    guard = " +guardrail" if args.guardrail else ""
+    print(f"Running {len(gold)} questions x {len(providers)} backend(s) x {conditions}{guard}: {providers}\n")
+    records = run(providers, gold, conditions, args.k, args.max_tokens,
+                  guardrail=args.guardrail, model=args.model)
 
     out = args.out or RESULTS_DIR / f"run_{datetime.now():%Y%m%d-%H%M%S}.jsonl"
     write_jsonl(out, records)
