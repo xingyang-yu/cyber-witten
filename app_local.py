@@ -95,9 +95,14 @@ def ask(question: str, k: int, use_guardrail: bool):
         answer = backend.generate(SYSTEM_PROMPT, user_msg)
         status = "guardrail off"
 
+    # Display one line per PAPER (best score); generation still sees every chunk.
+    best = {}
+    for s, p in passages:
+        if p["arxiv_id"] not in best or s > best[p["arxiv_id"]][0]:
+            best[p["arxiv_id"]] = (s, p)
     passages_md = "\n".join(
         f"- `{s:.3f}` [{p['arxiv_id']}]({_url(p['arxiv_id'])}) ({p['year']}) — {p['title']}"
-        for s, p in passages
+        for s, p in sorted(best.values(), key=lambda x: -x[0])
     )
     return _linkify(answer), f"**{status}**\n\n**Retrieved passages**\n\n{passages_md}"
 

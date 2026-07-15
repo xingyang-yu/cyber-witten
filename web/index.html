@@ -134,7 +134,17 @@ function topK(qvec, k) {
     scored[i] = [s, i];
   }
   scored.sort((a, b) => b[0] - a[0]);
-  return scored.slice(0, k);
+  // One hit per PAPER: keep each paper's best-scoring passage, so the list
+  // shows k distinct papers instead of k passages of the same one.
+  const hits = [], seen = new Set();
+  for (const [s, i] of scored) {
+    const id = meta[i].id;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    hits.push([s, i]);
+    if (hits.length === k) break;
+  }
+  return hits;
 }
 
 function urlFor(id) {
@@ -151,7 +161,7 @@ async function search() {
   const t0 = performance.now();
   const qvec = await embed(q);
   const hits = topK(qvec, parseInt(kEl.value, 10));
-  statusEl.textContent = `Top ${hits.length} of ${N.toLocaleString()} passages · ${Math.round(performance.now() - t0)}ms`;
+  statusEl.textContent = `Top ${hits.length} papers · searched ${N.toLocaleString()} passages · ${Math.round(performance.now() - t0)}ms`;
   resultsEl.innerHTML = hits.map(([s, i]) => {
     const m = meta[i];
     return `<div class="hit"><div class="head">

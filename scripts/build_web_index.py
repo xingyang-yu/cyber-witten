@@ -15,7 +15,9 @@ Outputs (web/data/):
     meta.json     [{id, year, title, snippet}] parallel to vectors
     config.json   {n, dim, model, query_prefix}
 """
+import argparse
 import json
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -27,28 +29,67 @@ BROWSER_MODEL = "Xenova/bge-small-en-v1.5"
 QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
 SNIPPET_CHARS = 300
 
+# --- snippet cleaning -------------------------------------------------------
+# Chunk text often opens with parsing debris (dates, ==== rules, LaTeX length
+# tokens like `1.5in`, arXiv-stub headers). The embedding sees the full text,
+# but the DISPLAYED snippet should start at real prose.
+_MONTHS = r"(?:January|February|March|April|May|June|July|August|September|October|November|December)"
+_NOISE_PATTERNS = [
+    re.compile(rf"^{_MONTHS}\s+\d{{1,2}},\s+\d{{4}}"),          # leading date line
+    re.compile(r"[=~_—-]{3,}"),                                  # ===== horizontal rules
+    re.compile(r"(?<![A-Za-z0-9])\d*\.?\d+(?:in|cm|pt|mm|em)\b"),  # LaTeX lengths: 1.5in .1cm
+    re.compile(r"\b[a-z-]{2,}/yymm\.nnnn\b"),                    # arXiv-id template stubs
+]
+# First "real prose" start: a Capitalized word (second char lowercase, so ALL-CAPS
+# section headers are skipped) followed by at least 7 more tokens.
+_PROSE_START = re.compile(r"[A-Z][a-z'’\-]+(?:\s+\S+){7,}")
+
+
+def clean_snippet(text: str, limit: int = SNIPPET_CHARS) -> str:
+    t = " ".join(text.split())
+    for pat in _NOISE_PATTERNS:
+        t = pat.sub(" ", t)
+    t = " ".join(t.split())
+    m = _PROSE_START.search(t)
+    if m:
+        t = t[m.start():]
+    return t[:limit]
+
 
 def main():
-    from bge_embed import encode_texts  # CLS pooling + L2 normalize, model_path override
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--meta-only", action="store_true",
+                    help="Rewrite meta.json/config.json (e.g. after a snippet-cleaning change) "
+                         "without re-embedding; vectors.bin must exist and match lookup.jsonl")
+    args = ap.parse_args()
 
     rows = [json.loads(line) for line in SRC.open()]
-    texts = [r["text"] for r in rows]
-    print(f"Embedding {len(texts)} chunks with {MODEL} (384-dim)…", flush=True)
-
-    embs = encode_texts(texts, batch_size=64, show_progress=True, model_path=MODEL)
-    assert embs.dtype.name == "float32"
-    n, dim = embs.shape
-    print(f"vectors: {embs.shape}")
+    n, dim = len(rows), 384
 
     OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / "vectors.bin").write_bytes(embs.tobytes(order="C"))
+    if args.meta_only:
+        vb = OUT / "vectors.bin"
+        if not vb.exists() or vb.stat().st_size != n * dim * 4:
+            raise SystemExit("--meta-only: vectors.bin missing or row count no longer matches "
+                             "lookup.jsonl — run a full build instead")
+        print(f"meta-only: keeping existing vectors.bin ({n} x {dim})")
+    else:
+        from bge_embed import encode_texts  # CLS pooling + L2 normalize, model_path override
+
+        texts = [r["text"] for r in rows]
+        print(f"Embedding {len(texts)} chunks with {MODEL} (384-dim)…", flush=True)
+        embs = encode_texts(texts, batch_size=64, show_progress=True, model_path=MODEL)
+        assert embs.dtype.name == "float32"
+        n, dim = embs.shape
+        print(f"vectors: {embs.shape}")
+        (OUT / "vectors.bin").write_bytes(embs.tobytes(order="C"))
 
     meta = [
         {
             "id": r["arxiv_id"],
             "year": r.get("year", ""),
             "title": r.get("title", ""),
-            "snippet": " ".join(r["text"].split())[:SNIPPET_CHARS],
+            "snippet": clean_snippet(r["text"]),
         }
         for r in rows
     ]
