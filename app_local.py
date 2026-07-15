@@ -66,17 +66,23 @@ def _linkify(text: str) -> str:
     return _ID_RE.sub(lambda m: f"[{m.group(1)}]({_url(m.group(1))})", text)
 
 
-def _retrieve(question: str, k: int):
+def _retrieve(question: str, k: int, use_rerank: bool = False):
+    if use_rerank:
+        from scripts.rerank import DEFAULT_POOL, rerank
+        n = max(DEFAULT_POOL, k)
+        scores, idxs = _index.search(encode_queries([question]), n)
+        pool = [(float(scores[0][j]), _lookup[idxs[0][j]]) for j in range(n)]
+        return rerank(question, pool, k)
     scores, idxs = _index.search(encode_queries([question]), k)
     return [(float(scores[0][j]), _lookup[idxs[0][j]]) for j in range(k)]
 
 
-def ask(question: str, k: int, use_guardrail: bool):
+def ask(question: str, k: int, use_guardrail: bool, use_rerank: bool):
     question = (question or "").strip()
     if not question:
         return "_Ask a question above._", ""
 
-    passages = _retrieve(question, int(k))
+    passages = _retrieve(question, int(k), use_rerank)
     retrieved_ids = [p["arxiv_id"] for _, p in passages]
     user_msg = (
         f"<question>\n{question}\n</question>\n\n"
@@ -122,14 +128,16 @@ with gr.Blocks(title="Cyber-Witten — local QA") as demo:
         k = gr.Slider(4, 12, value=8, step=1, label="Top-K", scale=1)
     with gr.Row():
         guardrail = gr.Checkbox(value=True, label="Citation guardrail (regenerate until grounded)")
+        rerank_box = gr.Checkbox(value=False, label="Cross-encoder rerank (sharper retrieval; "
+                                                    "first use downloads ~2.3GB)")
         btn = gr.Button("Ask", variant="primary", scale=2)
     answer = gr.Markdown(label="Answer")
     with gr.Accordion("Grounding + retrieved passages", open=False):
         sidebar = gr.Markdown()
     gr.Examples(EXAMPLES, inputs=question)
 
-    btn.click(ask, [question, k, guardrail], [answer, sidebar])
-    question.submit(ask, [question, k, guardrail], [answer, sidebar])
+    btn.click(ask, [question, k, guardrail, rerank_box], [answer, sidebar])
+    question.submit(ask, [question, k, guardrail, rerank_box], [answer, sidebar])
 
 
 if __name__ == "__main__":

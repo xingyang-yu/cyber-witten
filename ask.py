@@ -88,6 +88,10 @@ def main():
     ap.add_argument("--guardrail", action="store_true",
                     help="Enforce citation grounding: reject and regenerate an answer that "
                          "cites a paper not in the retrieved set (see scripts/guardrail.py)")
+    ap.add_argument("--rerank", action="store_true",
+                    help="Cross-encoder rerank: retrieve a larger candidate pool by cosine, "
+                         "re-score (question, passage) pairs jointly, keep top-K "
+                         "(sharper retrieval; first use downloads ~2.3GB reranker)")
     args = ap.parse_args()
 
     if not args.question:
@@ -100,7 +104,12 @@ def main():
     if not args.retrieve_only:
         backend = get_backend(args.provider, args.model)
 
-    passages = retrieve(args.question, args.k)
+    if args.rerank:
+        from scripts.rerank import DEFAULT_POOL, rerank
+        pool = retrieve(args.question, max(DEFAULT_POOL, args.k))
+        passages = rerank(args.question, pool, args.k)
+    else:
+        passages = retrieve(args.question, args.k)
     context = format_passages(passages)
 
     if args.show_passages or args.retrieve_only:

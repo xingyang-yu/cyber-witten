@@ -70,10 +70,12 @@ def write_jsonl(path: Path, records: list[dict]) -> None:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
 
-def build_retriever(k: int):
+def build_retriever(k: int, use_rerank: bool = False):
     """Load FAISS index + lookup once and return a retrieve(question) closure.
 
     Mirrors ask.retrieve but avoids re-reading the 53MB index per question.
+    With use_rerank, retrieves a larger cosine pool and re-scores it with the
+    cross-encoder (scripts/rerank.py) before keeping top-k.
     """
     # Load order matters on macOS: torch's OpenMP runtime must initialize BEFORE
     # faiss's, or the two collide in a segfault. bge_embed imports torch lazily,
@@ -83,13 +85,20 @@ def build_retriever(k: int):
     import torch  # noqa: F401  # must precede `import faiss`
     import faiss
 
+    if use_rerank:
+        from scripts.rerank import DEFAULT_POOL, rerank
+
     index = faiss.read_index(str(ROOT / "data" / "index" / "bge.faiss"))
     lookup = load_jsonl(ROOT / "data" / "index" / "lookup.jsonl")
 
     def retrieve(question: str):
+        n = max(DEFAULT_POOL, k) if use_rerank else k
         q_emb = encode_queries([question])
-        scores, idxs = index.search(q_emb, k)
-        return [(float(scores[0][j]), lookup[idxs[0][j]]) for j in range(k)]
+        scores, idxs = index.search(q_emb, n)
+        hits = [(float(scores[0][j]), lookup[idxs[0][j]]) for j in range(n)]
+        if use_rerank:
+            hits = rerank(question, hits, k)
+        return hits
 
     return retrieve
 
@@ -106,7 +115,8 @@ CLOSED_BOOK_SYSTEM = """You are a theoretical physics expert, deeply familiar wi
 
 
 def run(providers: list[str], gold: list[dict], conditions: list[str], k: int,
-        max_tokens: int, guardrail: bool = False, model: str | None = None) -> list[dict]:
+        max_tokens: int, guardrail: bool = False, model: str | None = None,
+        use_rerank: bool = False) -> list[dict]:
     from ask import SYSTEM_PROMPT, format_passages
     from scripts.llm_backends import get_backend
     if guardrail:
@@ -114,7 +124,7 @@ def run(providers: list[str], gold: list[dict], conditions: list[str], k: int,
 
     # Fail fast on missing keys before the expensive index load.
     backends = [get_backend(p, model) for p in providers]
-    retrieve = build_retriever(k) if "rag" in conditions else None
+    retrieve = build_retriever(k, use_rerank) if "rag" in conditions else None
 
     records: list[dict] = []
     for q in gold:
@@ -184,7 +194,7 @@ def run(providers: list[str], gold: list[dict], conditions: list[str], k: int,
     return records
 
 
-def run_retrieval_preview(gold: list[dict], k: int) -> None:
+def run_retrieval_preview(gold: list[dict], k: int, use_rerank: bool = False) -> None:
     """No-LLM pre-flight: retrieve for each gold question and report whether the
     expected papers (and at what rank) actually surface in the top-K. Flags
     in_corpus questions the index can't support, and shows what tempting
@@ -193,7 +203,7 @@ def run_retrieval_preview(gold: list[dict], k: int) -> None:
 
     from evals.validator import normalize_id
 
-    retrieve = build_retriever(k)
+    retrieve = build_retriever(k, use_rerank)
     recalls: list[float] = []
     missed: list[tuple[str, str]] = []
 
@@ -264,6 +274,9 @@ def main() -> None:
                     help="Skip generation; re-render tables from an existing run file")
     ap.add_argument("--retrieve-only", action="store_true",
                     help="No LLM/API key: retrieve per gold question and report retrieval recall")
+    ap.add_argument("--rerank", action="store_true",
+                    help="Cross-encoder rerank the cosine candidate pool before top-K "
+                         "(applies to both --retrieve-only and full runs)")
     args = ap.parse_args()
 
     if args.report:
@@ -277,7 +290,7 @@ def main() -> None:
         gold = gold[: args.limit]
 
     if args.retrieve_only:
-        run_retrieval_preview(gold, args.k)
+        run_retrieval_preview(gold, args.k, use_rerank=args.rerank)
         return
 
     providers = [p.strip() for p in args.providers.split(",") if p.strip()]
@@ -286,7 +299,7 @@ def main() -> None:
     guard = " +guardrail" if args.guardrail else ""
     print(f"Running {len(gold)} questions x {len(providers)} backend(s) x {conditions}{guard}: {providers}\n")
     records = run(providers, gold, conditions, args.k, args.max_tokens,
-                  guardrail=args.guardrail, model=args.model)
+                  guardrail=args.guardrail, model=args.model, use_rerank=args.rerank)
 
     out = args.out or RESULTS_DIR / f"run_{datetime.now():%Y%m%d-%H%M%S}.jsonl"
     write_jsonl(out, records)
