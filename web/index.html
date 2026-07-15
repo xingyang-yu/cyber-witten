@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cyber-Witten · search Witten's papers</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔭</text></svg>">
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d; --fg: #e6edf3;
+    --muted: #8b949e; --accent: #6ea8fe; --accent-2: #a371f7;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f6f8fa; --panel:#fff; --border:#d0d7de; --fg:#1f2328; --muted:#636c76; --accent:#0969da; --accent-2:#8250df; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg); line-height: 1.55;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 32px 20px 80px; }
+  h1 { font-size: 1.7rem; margin: 0 0 6px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .sub a { color: var(--accent); }
+  .controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  #q {
+    flex: 1 1 320px; min-width: 0; padding: 12px 14px; font-size: 1rem;
+    background: var(--panel); color: var(--fg); border: 1px solid var(--border); border-radius: 10px;
+  }
+  #q:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  button {
+    padding: 12px 20px; font-size: 1rem; font-weight: 600; cursor: pointer;
+    background: var(--accent); color: #fff; border: 0; border-radius: 10px;
+  }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .k { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: .9rem; }
+  .k input { width: 120px; }
+  .examples { margin: 14px 0 0; display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    font-size: .85rem; color: var(--accent); background: transparent; cursor: pointer;
+    border: 1px solid var(--border); border-radius: 999px; padding: 5px 12px;
+  }
+  #status { margin: 20px 0; color: var(--muted); font-size: .95rem; }
+  .hit { padding: 14px 0; border-top: 1px solid var(--border); }
+  .hit .head { font-size: .95rem; }
+  .hit .sim { color: var(--accent-2); font-variant-numeric: tabular-nums; font-weight: 600; }
+  .hit a { color: var(--accent); text-decoration: none; }
+  .hit a:hover { text-decoration: underline; }
+  .hit .title { font-weight: 600; }
+  .hit .snip { color: var(--muted); font-size: .9rem; margin-top: 4px; }
+  .foot { margin-top: 40px; color: var(--muted); font-size: .85rem; }
+  .foot a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🔭 Cyber-Witten</h1>
+  <p class="sub">
+    Semantic search over <strong>Edward Witten's arXiv papers</strong>. Ask a physics question and
+    this finds the most relevant passages, ranked by meaning. It is a <strong>finder, not a chatbot</strong>:
+    it returns source passages with arXiv links, it does not write an answer. The answer-writing
+    version is the <a href="https://github.com/xingyang-yu/cyber-witten" target="_blank" rel="noopener">local app</a>.
+    <br>Everything runs <strong>in your browser</strong> — no server, no API, nothing sent anywhere.
+  </p>
+
+  <div class="controls">
+    <input id="q" type="text" placeholder="Ask about Witten's physics…" disabled autocomplete="off">
+    <label class="k">top-<span id="kval">5</span> <input id="k" type="range" min="1" max="15" value="5"></label>
+    <button id="go" disabled>Search</button>
+  </div>
+  <div class="examples" id="examples"></div>
+
+  <div id="status">Loading model and index…</div>
+  <div id="results"></div>
+
+  <p class="foot">
+    Built with <a href="https://github.com/huggingface/transformers.js" target="_blank" rel="noopener">transformers.js</a>
+    (BGE-small, 384-dim) + brute-force cosine over <span id="nvec">…</span> passages, all client-side.
+    arXiv-only corpus; pre-arXiv papers excluded. <a href="https://github.com/xingyang-yu/cyber-witten" target="_blank" rel="noopener">Source</a>.
+  </p>
+</div>
+
+<script type="module">
+import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2";
+env.allowLocalModels = false;   // fetch model from the HuggingFace hub
+
+const EXAMPLES = [
+  "What is the relation between Chern-Simons theory and the Jones polynomial?",
+  "How does mirror symmetry relate Calabi-Yau manifolds?",
+  "What is the entropy of a black hole in JT gravity?",
+  "How does electric-magnetic duality enter Seiberg-Witten theory?",
+];
+
+const $ = (id) => document.getElementById(id);
+const statusEl = $("status"), resultsEl = $("results");
+const qEl = $("q"), goEl = $("go"), kEl = $("k"), kValEl = $("kval");
+
+kEl.addEventListener("input", () => { kValEl.textContent = kEl.value; });
+
+let cfg, meta, vectors, dim, N, extractor;
+
+async function boot() {
+  try {
+    const [cfgR, metaR, vecR] = await Promise.all([
+      fetch("data/config.json"), fetch("data/meta.json"), fetch("data/vectors.bin"),
+    ]);
+    cfg = await cfgR.json();
+    meta = await metaR.json();
+    vectors = new Float32Array(await vecR.arrayBuffer());
+    dim = cfg.dim; N = cfg.n;
+    $("nvec").textContent = N.toLocaleString();
+
+    statusEl.textContent = "Loading the embedding model (first time downloads ~30MB)…";
+    extractor = await pipeline("feature-extraction", cfg.model, { quantized: true });
+
+    qEl.disabled = false; goEl.disabled = false;
+    statusEl.textContent = "Ready. Ask a question.";
+    qEl.focus();
+  } catch (e) {
+    statusEl.textContent = "Failed to load: " + e.message;
+  }
+}
+
+async function embed(text) {
+  const out = await extractor(cfg.query_prefix + text, { pooling: "cls", normalize: true });
+  return out.data;   // Float32Array[dim], L2-normalized
+}
+
+function topK(qvec, k) {
+  const scored = new Array(N);
+  for (let i = 0; i < N; i++) {
+    let s = 0; const off = i * dim;
+    for (let j = 0; j < dim; j++) s += qvec[j] * vectors[off + j];
+    scored[i] = [s, i];
+  }
+  scored.sort((a, b) => b[0] - a[0]);
+  return scored.slice(0, k);
+}
+
+function urlFor(id) {
+  return id.startsWith("inspire:")
+    ? "https://inspirehep.net/literature/" + id.slice(8)
+    : "https://arxiv.org/abs/" + id;
+}
+const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+
+async function search() {
+  const q = qEl.value.trim();
+  if (!q || !extractor) return;
+  statusEl.textContent = "Searching…"; resultsEl.innerHTML = "";
+  const t0 = performance.now();
+  const qvec = await embed(q);
+  const hits = topK(qvec, parseInt(kEl.value, 10));
+  statusEl.textContent = `Top ${hits.length} of ${N.toLocaleString()} passages · ${Math.round(performance.now() - t0)}ms`;
+  resultsEl.innerHTML = hits.map(([s, i]) => {
+    const m = meta[i];
+    return `<div class="hit"><div class="head">
+      <span class="sim">${s.toFixed(3)}</span> ·
+      <a href="${urlFor(m.id)}" target="_blank" rel="noopener">${esc(m.id)}</a>
+      <span style="color:var(--muted)">(${esc(String(m.year))})</span> ·
+      <span class="title">${esc(m.title)}</span></div>
+      <div class="snip">${esc(m.snippet)}…</div></div>`;
+  }).join("");
+}
+
+goEl.addEventListener("click", search);
+qEl.addEventListener("keydown", (e) => { if (e.key === "Enter") search(); });
+
+$("examples").innerHTML = EXAMPLES.map((e) => `<span class="chip">${esc(e)}</span>`).join("");
+document.querySelectorAll(".chip").forEach((c, i) => c.addEventListener("click", () => {
+  qEl.value = EXAMPLES[i]; search();
+}));
+
+boot();
+</script>
+</body>
+</html>
