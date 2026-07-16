@@ -44,6 +44,21 @@ ignored by the validator, so either form is fine.
 Consider a few **adversarial pairs**: a real Witten result vs. a plausible
 misattribution ("Didn't Witten prove X?" where X is someone else's / false).
 
+## The probe set (`probes.jsonl`)
+
+A separate, larger set of **out-of-corpus probes only**, used to calibrate the
+pre-generation refusal threshold (`python -m evals.calibrate_refusal`). Five
+families, each deliberately *near* a real corpus cluster so retrieval surfaces
+tempting passages: experimental values (near his theory topics), other authors'
+theorems (near the Witten paper that cites them), temporal-boundary questions
+(post-corpus events), biography/interview content (not paper material), and
+false-premise questions (things Witten never did). No `gold_answer` needed;
+`key_claims` state what a correct refusal must and must not do.
+
+Caveat: a probe whose best rerank score lands in the in-corpus range is flagged
+by the calibration script as a *suspect* — likely answerable from the corpus
+after all — and needs a physicist's review before it counts.
+
 ## Scoring (after a run)
 
 `python -m evals.run_eval --providers anthropic,ollama` writes a run file with
