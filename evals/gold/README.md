@@ -57,7 +57,13 @@ false-premise questions (things Witten never did). No `gold_answer` needed;
 
 Caveat: a probe whose best rerank score lands in the in-corpus range is flagged
 by the calibration script as a *suspect* — likely answerable from the corpus
-after all — and needs a physicist's review before it counts.
+after all — and needs a physicist's review before it counts. Reviewed probes
+that are legitimate QA tests but unfair to a topical-coverage gate (mixed
+questions, corpus-covered topics, temporal/premise falseness) carry
+`"gate_calibration": false`: they are still scored and listed, but excluded
+from the threshold sweep. The 2026-07 review converted one suspect into an
+in-corpus gold question outright (the corpus turned out to cover it) — probes
+can be wrong in both directions.
 
 ## Scoring (after a run)
 
