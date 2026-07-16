@@ -317,14 +317,19 @@ def main() -> None:
     records = run(providers, gold, conditions, args.k, args.max_tokens,
                   guardrail=args.guardrail, model=args.model, use_rerank=args.rerank)
 
-    out = args.out or RESULTS_DIR / f"run_{datetime.now():%Y%m%d-%H%M%S}.jsonl"
+    out = (args.out.resolve() if args.out
+           else RESULTS_DIR / f"run_{datetime.now():%Y%m%d-%H%M%S}.jsonl")
     write_jsonl(out, records)
-    print(f"\nWrote {len(records)} records -> {out.relative_to(ROOT)}")
+    try:
+        shown = out.relative_to(ROOT)
+    except ValueError:
+        shown = out
+    print(f"\nWrote {len(records)} records -> {shown}")
     report(records)
     print(
         f"\nNext: fill in human scores (correctness/faithfulness/refusal_ok/notes) in\n"
-        f"  {out.relative_to(ROOT)}\n"
-        f"then re-render:  python -m evals.run_eval --report {out.relative_to(ROOT)}"
+        f"  {shown}\n"
+        f"then re-render:  python -m evals.run_eval --report {shown}"
     )
 
 
