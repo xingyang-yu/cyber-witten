@@ -311,6 +311,25 @@ The generation step's whole promise is *grounding*: answer only from retrieved p
 
 The same check also runs **live at serving time**: `ask.py --guardrail` (and the local app) validates each answer and, on a violation — a citation to a paper that wasn't retrieved, *or* a substantive answer with no citations at all — feeds the model a targeted correction and regenerates, failing loudly after N attempts (`scripts/guardrail.py`). Measured effect on a small local model (qwen2.5:7b via Ollama): naked, it answered in confident prose with **zero** citations; guarded, it cited the correct expected paper within one retry, at ~3x latency. With `--rerank`, a **pre-generation refusal gate** additionally declines questions the corpus doesn't cover before any LLM call: cross-encoder logits are absolute-ish, and on the gold set out-of-corpus probes top out at 0.22 (three of four negative) while in-corpus questions bottom out at 0.49 — threshold 0.0 splits them conservatively (`--refusal-threshold` to tune).
 
+### Measured: what grounding buys — and what it doesn't
+
+Full expert-scored run: 23 gold questions × 3 conditions on qwen2.5:7b via Ollama. Human columns (correctness / faithfulness / refusal) on a 0–2 scale, scored by a physicist with triage assistance from an independent second-model review pass; automated columns from the validator. Faithfulness is N/A closed-book (no passages) and not scored for nonresponsive (c=0) answers.
+
+| condition | fabricated cites ↓ | uncited ↓ | cite recall ↑ | correctness ↑ | faithfulness ↑ | refusal ↑ |
+|---|---|---|---|---|---|---|
+| closed_book | 0.17 | 0.83 | 0.05 | 0.16 | — | 1.25 |
+| rag | 0.09 | 0.91 | 0.00 | 0.42 | 1.00 | 0.00 |
+| rag + guardrail | **0.00** | **0.00** | **0.64** | **0.53** | **1.88** | 0.00 |
+
+Four results:
+
+1. **Grounding buys correctness, not just citation hygiene.** RAG nearly triples closed-book correctness (0.16 → 0.42 of 2); the guardrail adds more (0.53).
+2. **The guardrail's biggest win is faithfulness** (1.00 → 1.88 of 2): forcing citations forces the prose to stay on the passages. It also zeroes both failure modes it targets — fabricated citations and uncited answers — lifting expected-citation recall from 0.00 to 0.64.
+3. **The honest ceiling is 0.53 of 2.** With near-perfect retrieval (0.94) and enforced citations, a 7B model still anchors on tangential passages and stays physics-shallow. Grounding machinery cannot supply depth; that comes from the model.
+4. **Retrieval destroys refusal.** On out-of-corpus probes the closed-book model at least hedges (1.25 of 2), while *both* RAG conditions score 0.00 — shown relevant passages, the model answers them instead of questioning the premise. This is exactly the failure the pre-generation refusal gate exists to catch; it was off in this run for clean attribution and is measured separately above.
+
+Two scoring byproducts worth recording: one corpus chunk carries a parsing-induced physics error that the model then quoted *faithfully* ("hyper-Kähler structure on $C$" — the source means $\mathcal{M}_H$), a reminder that faithfulness inherits corpus quality; and the model's fabricated citations tend to digit-mangle real IDs (2605.15180 → 1605.08291), visually plausible but mechanically catchable.
+
 ---
 
 ## Known limitations
