@@ -123,6 +123,19 @@ class OpenAIBackend(OpenAICompatibleBackend):
         super().__init__(model=model)  # default base_url + OPENAI_API_KEY
 
 
+class DeepSeekBackend(OpenAICompatibleBackend):
+    name = "deepseek"
+    DEFAULT_MODEL = "deepseek-v4-pro"
+    DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
+
+    def __init__(self, model: str | None = None):
+        super().__init__(
+            model=model,
+            base_url=self.DEFAULT_BASE_URL,
+            api_key_env="DEEPSEEK_API_KEY",
+        )
+
+
 class OllamaBackend(OpenAICompatibleBackend):
     """Local Ollama server (https://ollama.com) — no API key, no cost.
 
@@ -146,6 +159,7 @@ class OllamaBackend(OpenAICompatibleBackend):
 BACKENDS: dict[str, type[LLMBackend]] = {
     "anthropic": AnthropicBackend,
     "openai": OpenAIBackend,
+    "deepseek": DeepSeekBackend,
     "ollama": OllamaBackend,
 }
 
