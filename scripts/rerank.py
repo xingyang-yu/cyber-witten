@@ -20,6 +20,26 @@ RERANKER_MODEL = "BAAI/bge-reranker-v2-m3"
 MAX_LENGTH = 512
 DEFAULT_POOL = 100  # candidates fetched by cosine before reranking
 
+# Pre-generation refusal: cross-encoder logits are absolute-ish, so the score of
+# the BEST passage says whether the corpus covers the question at all. Measured
+# on the gold set: out-of-corpus probes top out at 0.22 (three of four negative),
+# in-corpus questions bottom out at 0.49 (most +1..+5). Threshold 0.0 is the
+# conservative cut — it never comes near refusing an answerable question, and a
+# missed refusal still falls through to the prompt + citation guardrail.
+REFUSAL_THRESHOLD = 0.0
+REFUSAL_TEXT = (
+    "The retrieved passages do not cover this question — the corpus does not "
+    "appear to contain relevant material (best relevance score {score:.2f}). "
+    "Refusing before generation rather than risking an ungrounded answer."
+)
+
+
+def refusal_check(passages, threshold=REFUSAL_THRESHOLD):
+    """Given rerank()-sorted (score, payload) passages, decide whether to refuse
+    before generation. Returns (should_refuse, best_score)."""
+    best = passages[0][0] if passages else float("-inf")
+    return best < threshold, best
+
 
 def _pick_device():
     import torch

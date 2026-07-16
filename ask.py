@@ -92,6 +92,9 @@ def main():
                     help="Cross-encoder rerank: retrieve a larger candidate pool by cosine, "
                          "re-score (question, passage) pairs jointly, keep top-K "
                          "(sharper retrieval; first use downloads ~2.3GB reranker)")
+    ap.add_argument("--refusal-threshold", type=float, default=None, metavar="SCORE",
+                    help="With --rerank: refuse before generation if the best passage's "
+                         "rerank score is below SCORE (default 0.0; pass e.g. -999 to disable)")
     args = ap.parse_args()
 
     if not args.question:
@@ -121,6 +124,18 @@ def main():
 
     if args.retrieve_only:
         return
+
+    if args.rerank:
+        from scripts.rerank import REFUSAL_TEXT, REFUSAL_THRESHOLD, refusal_check
+        threshold = REFUSAL_THRESHOLD if args.refusal_threshold is None else args.refusal_threshold
+        should_refuse, best = refusal_check(passages, threshold)
+        if should_refuse:
+            print("=" * 70)
+            print("CYBER-WITTEN  (pre-generation refusal — no LLM call)")
+            print("=" * 70)
+            print(REFUSAL_TEXT.format(score=best))
+            print()
+            return
 
     user_msg = (
         f"<question>\n{args.question}\n</question>\n\n"

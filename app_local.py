@@ -83,6 +83,15 @@ def ask(question: str, k: int, use_guardrail: bool, use_rerank: bool):
         return "_Ask a question above._", ""
 
     passages = _retrieve(question, int(k), use_rerank)
+    if use_rerank:
+        from scripts.rerank import REFUSAL_TEXT, refusal_check
+        should_refuse, best = refusal_check(passages)
+        if should_refuse:
+            return (
+                f"🛑 {REFUSAL_TEXT.format(score=best)}",
+                f"**⛔ pre-generation refusal** — best rerank score {best:.2f} "
+                "is below the coverage threshold; no LLM call was made.",
+            )
     retrieved_ids = [p["arxiv_id"] for _, p in passages]
     user_msg = (
         f"<question>\n{question}\n</question>\n\n"

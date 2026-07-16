@@ -153,8 +153,8 @@ The BGE model is auto-resolved from `~/.cache/huggingface` if present, otherwise
 
 Two ways to use the corpus, split deliberately (the "no LLM API" goal makes free hosted *generation* impractical, so the online demo stays retrieval-only):
 
-- **Online retrieval demo** (`space/`). A free, no-key Gradio Space: type a question, see the passages the retriever surfaces, with arXiv links. No LLM. Deploy steps in `space/README.md`.
-- **Local QA app** (`app_local.py`). The full grounded experience, fully local and no API: retrieval + a local LLM (Ollama) + the [citation guardrail](#evaluation), answers cited by paper ID (clickable). Generation runs on your machine, so a guarded query takes roughly 1-3 minutes.
+- **Online retrieval demo** (`web/`) — **live at [xingyangyu.com/cyber-witten](https://xingyangyu.com/cyber-witten/)**. Runs *entirely in your browser*: transformers.js encodes the query (BGE-small), brute-force cosine over precomputed vectors, one hit per paper with arXiv links. No server, no LLM, no key, nothing sent anywhere. Rebuild the data with `scripts/build_web_index.py`. (`space/` holds an equivalent Gradio app for local use; hosting it on HF now requires a paid plan, hence the static route.)
+- **Local QA app** (`app_local.py`). The full grounded experience, fully local and no API: retrieval + a local LLM (Ollama) + the [citation guardrail](#evaluation), answers cited by paper ID (clickable). Optional cross-encoder reranking, which also enables a pre-generation refusal gate (decline questions the corpus doesn't cover, before any LLM call). Generation runs on your machine, so a guarded query takes roughly 1-3 minutes.
   ```bash
   pip install gradio openai          # gradio = UI, openai = Ollama transport
   brew install ollama && ollama serve
@@ -309,7 +309,7 @@ The generation step's whole promise is *grounding*: answer only from retrieved p
 .venv/bin/python -m evals.run_eval --report evals/results/<run>.jsonl  # re-render tables after human scoring
 ```
 
-The validator currently *measures* grounding offline. Wiring the same check into `ask.py` as a live serving-time guardrail (reject and regenerate an ungrounded answer) is the natural next step; see [Future work](#future-work).
+The same check also runs **live at serving time**: `ask.py --guardrail` (and the local app) validates each answer and, on a violation — a citation to a paper that wasn't retrieved, *or* a substantive answer with no citations at all — feeds the model a targeted correction and regenerates, failing loudly after N attempts (`scripts/guardrail.py`). Measured effect on a small local model (qwen2.5:7b via Ollama): naked, it answered in confident prose with **zero** citations; guarded, it cited the correct expected paper within one retry, at ~3x latency. With `--rerank`, a **pre-generation refusal gate** additionally declines questions the corpus doesn't cover before any LLM call: cross-encoder logits are absolute-ish, and on the gold set out-of-corpus probes top out at 0.22 (three of four negative) while in-corpus questions bottom out at 0.49 — threshold 0.0 splits them conservatively (`--refusal-threshold` to tune).
 
 ---
 
@@ -321,17 +321,16 @@ The validator currently *measures* grounding offline. Wiring the same check into
 - **No query rewriting.** A question like "what did he say about that black hole thing in '83?" relies on the BGE encoder to disambiguate. A small LLM rewriting step would help; deferred.
 - **Pre-arXiv recall is incomplete.** 44 of ~70 pre-1991 papers were recovered. The rest are paywalled in ways the fallback chain couldn't break, or are conference proceedings without DOIs.
 - **OCR quality on early scans is mixed.** Pre-1985 papers sometimes have noisy passages where tesseract misread Greek letters and mathematical symbols. These show up in retrieval but degrade readability.
-- **Citation-grounding is checked offline, not yet at serving time.** The [Evaluation](#evaluation) harness now does the post-hoc check (parse the output, verify each `[id]` was actually retrieved) to *measure* grounding. Running that same check inside `ask.py` as a live guardrail that rejects and regenerates an ungrounded answer is still to do.
-- **Citation discipline varies by backend.** Claude Sonnet (default) follows the strict-citation system prompt near-perfectly; GPT-4o is close behind; smaller open models served via Ollama (Llama-3.1-8B and the like) violate the rule more often. The validator (see [Evaluation](#evaluation)) now makes this measurable independent of backend; until a live guardrail is wired in, treat the default backend as the recommended one for serious answers.
+- **The guardrail enforces grounding, not correctness.** `--guardrail` (see [Evaluation](#evaluation)) guarantees every citation resolves to a retrieved passage and that substantive answers cite; it cannot guarantee the *physics* is right. A small local model can produce a fully grounded answer that anchors on a tangential passage and misses the canonical one — correctness still comes from the model (and from reranking putting the right paper first).
+- **Citation discipline varies by backend.** Claude Sonnet (default) follows the strict-citation system prompt near-perfectly; GPT-4o is close behind; smaller open models served via Ollama violate it more often — measured: naked qwen2.5:7b cites nothing at all. The `--guardrail` retry loop closes most of that gap mechanically, so with it on, a local model becomes usable; for unguarded runs, treat the default backend as the recommended one.
+- **The refusal gate is calibrated on few probes.** The 0.0 threshold separates the gold set's 4 out-of-corpus probes from its 19 in-corpus questions with margin (0.22 vs 0.49), but one probe (top score 0.22) slips past it by design — conservative, since a missed refusal still falls through to the prompt and guardrail. A larger probe set would firm the threshold up.
 
 ---
 
 ## Future work
 
 - **Pre-1991 OCR cleanup pipeline.** Equation-aware OCR (Mathpix, Nougat) on the scan-quality outliers to lift retrieval quality on the 1976–1985 papers.
-- **Live citation guardrail.** The validator already exists for offline measurement (see [Evaluation](#evaluation)); the remaining step is to run it inside `ask.py` so an ungrounded answer is rejected and regenerated at serving time, not just flagged afterward.
-- **Rerank-score refusal threshold.** An unexpected bonus of the cross-encoder (see Known limitations): its scores are absolute-ish logits, and on the gold set every out-of-corpus probe's *best* passage scores negative while in-corpus questions score +2 to +5. That is a usable "the corpus has nothing relevant" detector — wire it into the refusal path so the system can decline *before* generation instead of relying on the model to notice.
-- **HuggingFace Space (retrieval-only).** Public Gradio demo of the retriever using the `export_public.py` bundle; no LLM key required.
+- **Refusal-gate calibration.** The pre-generation refusal threshold (see Known limitations) is calibrated on only 4 out-of-corpus probes; author a larger probe set (20-30 near-miss questions) and pick the threshold from a proper margin curve.
 - **Fine-tuned BGE.** Self-supervised contrastive fine-tune on (paper-title, abstract) pairs from the corpus to specialize the embedder for physics vocabulary. Open question whether the gain over the off-the-shelf checkpoint justifies the engineering.
 - **Distillation.** Train a small open-weight model on (question, retrieved-passages, grounded-answer) triples generated by Claude, for a fully-local end-to-end system. Possibly out of scope; included for discussion.
 
@@ -342,7 +341,8 @@ The validator currently *measures* grounding offline. Wiring the same check into
 ```
 .
 ├── README.md            this file
-├── ask.py               query entrypoint: retrieve → LLM (pluggable) → grounded answer
+├── ask.py               query entrypoint: retrieve → [rerank] → LLM (pluggable) → grounded answer
+├── app_local.py         local QA web app: retrieval + Ollama + guardrail, no API
 ├── requirements.txt     pinned runtime deps
 ├── .env.example         ANTHROPIC_API_KEY + optional BGE_MODEL_PATH
 ├── LICENSE              MIT
@@ -356,8 +356,14 @@ The validator currently *measures* grounding offline. Wiring the same check into
 │   ├── 07_ingest_manual_pdfs.py
 │   ├── bge_embed.py
 │   ├── llm_backends.py
+│   ├── rerank.py        cross-encoder rerank + pre-generation refusal gate
+│   ├── guardrail.py     live citation guardrail (fabrication + omission) + tests
+│   ├── build_web_index.py   BGE-small vectors + meta for the browser demo
 │   ├── healthcheck.py
 │   └── export_public.py
+├── web/                 browser-only retrieval demo (live at xingyangyu.com/cyber-witten)
+├── space/               same demo as a Gradio app (local use; HF hosting now paid)
+├── .github/workflows/   CI: validator + guardrail unit tests on every push
 ├── evals/               grounding eval harness
 │   ├── validator.py     citation-grounding check (pure, unit-tested)
 │   ├── rubric.py        0/1/2 human rubric + report aggregation

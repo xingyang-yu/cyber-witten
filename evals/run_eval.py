@@ -121,6 +121,8 @@ def run(providers: list[str], gold: list[dict], conditions: list[str], k: int,
     from scripts.llm_backends import get_backend
     if guardrail:
         from scripts.guardrail import generate_grounded
+    if use_rerank:
+        from scripts.rerank import REFUSAL_TEXT, REFUSAL_THRESHOLD, refusal_check
 
     # Fail fast on missing keys before the expensive index load.
     backends = [get_backend(p, model) for p in providers]
@@ -132,6 +134,7 @@ def run(providers: list[str], gold: list[dict], conditions: list[str], k: int,
 
         # Build each condition's prompt once; shared across all backends.
         prompts: dict[str, tuple[str, str, list[str]]] = {}
+        prerefusal = None
         if "rag" in conditions:
             passages = retrieve(q["question"])
             rids = [p["arxiv_id"] for _, p in passages]
@@ -142,6 +145,10 @@ def run(providers: list[str], gold: list[dict], conditions: list[str], k: int,
                 "Answer the question using only the passages above. Cite each claim.",
                 rids,
             )
+            if use_rerank:
+                should_refuse, best = refusal_check(passages)
+                prerefusal = {"best_score": round(best, 3), "triggered": should_refuse,
+                              "threshold": REFUSAL_THRESHOLD}
         if "closed_book" in conditions:
             prompts["closed_book"] = (
                 CLOSED_BOOK_SYSTEM,
@@ -171,12 +178,21 @@ def run(providers: list[str], gold: list[dict], conditions: list[str], k: int,
                     "expected_citations": expected,
                     "human": blank_human_scores(),
                 }
+                if condition == "rag" and prerefusal is not None:
+                    rec["prerefusal"] = prerefusal
                 t0 = time.time()
                 try:
-                    if use_guard:
+                    if condition == "rag" and prerefusal and prerefusal["triggered"]:
+                        # System declined before generation — no LLM call at all.
+                        answer = REFUSAL_TEXT.format(score=prerefusal["best_score"])
+                    elif use_guard:
+                        # require_citation stays True even for out_of_corpus probes:
+                        # production (ask.py, the local app) doesn't know the question
+                        # type, so the eval must measure the same configuration. A
+                        # genuine refusal passes the guardrail's refusal pattern anyway;
+                        # what this catches is a substantive-but-uncited answer.
                         answer, gr = generate_grounded(
                             backend, system, user_msg, retrieved_ids, max_tokens=max_tokens,
-                            require_citation=(rec["type"] != "out_of_corpus"),
                         )
                         rec["guardrail"] = {"grounded": gr["grounded"], "problem": gr["problem"],
                                             "attempts": gr["attempts"]}

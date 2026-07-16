@@ -69,6 +69,18 @@ def test_require_citation_false_allows_uncited():
     assert rep["grounded"] and b.calls == 1
 
 
+def test_prerefusal_text_counts_as_refusal():
+    # The rerank pre-generation refusal text must match the guardrail's refusal
+    # pattern, so it is never mistaken for an uncited substantive answer.
+    from scripts.guardrail import _REFUSAL_RE
+    from scripts.rerank import REFUSAL_TEXT, refusal_check
+
+    assert _REFUSAL_RE.search(REFUSAL_TEXT.format(score=-1.23))
+    assert refusal_check([(-0.5, {})]) == (True, -0.5)
+    assert refusal_check([(0.5, {})]) == (False, 0.5)
+    assert refusal_check([]) == (True, float("-inf"))
+
+
 def _run():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:
