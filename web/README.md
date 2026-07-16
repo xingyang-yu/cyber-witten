@@ -8,7 +8,7 @@ pinned: false
 license: mit
 ---
 
-# Cyber-Witten — client-side retrieval demo
+# Cyber-Witten — client-side retrieval demo (+ bring-your-own-key answers)
 
 Semantic search over Edward Witten's arXiv papers, running **entirely in the
 browser**: the query is embedded client-side with transformers.js
@@ -16,15 +16,24 @@ browser**: the query is embedded client-side with transformers.js
 passage vectors. No server, no API, nothing sent anywhere. Free forever on a
 HuggingFace **Static** Space.
 
-Retrieval only (a finder, not a chatbot). The grounded answer-writing step is
-the local app: https://github.com/xingyang-yu/cyber-witten
+By default it is a finder. A visitor can optionally paste **their own API key**
+(Anthropic / OpenAI / DeepSeek / local Ollama / any OpenAI-compatible base URL)
+under "Grounded answer": the browser then sends the top-8 passages plus the
+strict cite-or-fail prompt directly to that provider, and a JS port of the
+citation guardrail (`evals/validator.py` + `scripts/guardrail.py`) checks the
+answer — fabricated or missing citations trigger one corrective retry, then
+fail loudly with a visible badge. The key lives in the tab and goes only to
+the chosen provider; the page has no backend. The full offline version is the
+local app: https://github.com/xingyang-yu/cyber-witten
 
 ## Files
 
-    index.html        the whole app (UI + client-side retrieval)
-    data/vectors.bin  float32 [N, 384], L2-normalized passage embeddings
-    data/meta.json    [{id, year, title, snippet}] parallel to vectors
-    data/config.json  {n, dim, model, query_prefix}
+    index.html          the whole app (UI + retrieval + BYOK generation + guardrail)
+    data/vectors.bin    float32 [N, 384], L2-normalized passage embeddings
+    data/meta.json      [{id, year, title, snippet}] parallel to vectors
+    data/texts.json.gz  full passage texts, gzipped (~9MB) — lazily fetched only
+                        when a visitor uses BYOK generation
+    data/config.json    {n, dim, model, query_prefix}
 
 Regenerate `data/` with `python scripts/build_web_index.py` from the repo root
 (needs the arXiv-only bundle from `scripts/export_public.py`).

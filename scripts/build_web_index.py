@@ -11,11 +11,15 @@ and bge-large (1.3GB) is too big for a browser. bge-small trades some retrieval
 sharpness for "free forever, no server."
 
 Outputs (web/data/):
-    vectors.bin   float32 [N, 384], row-major, L2-normalized (raw bytes)
-    meta.json     [{id, year, title, snippet}] parallel to vectors
-    config.json   {n, dim, model, query_prefix}
+    vectors.bin    float32 [N, 384], row-major, L2-normalized (raw bytes)
+    meta.json      [{id, year, title, snippet}] parallel to vectors
+    texts.json.gz  [full chunk text] parallel to vectors, gzipped — fetched
+                   lazily by the demo only when a visitor uses bring-your-own-key
+                   generation (retrieval-only visitors never download it)
+    config.json    {n, dim, model, query_prefix}
 """
 import argparse
+import gzip
 import json
 import re
 from pathlib import Path
@@ -84,6 +88,10 @@ def main():
         print(f"vectors: {embs.shape}")
         (OUT / "vectors.bin").write_bytes(embs.tobytes(order="C"))
 
+    texts = [" ".join(r["text"].split()) for r in rows]
+    with gzip.open(OUT / "texts.json.gz", "wt", encoding="utf-8") as f:
+        json.dump(texts, f, ensure_ascii=False)
+
     meta = [
         {
             "id": r["arxiv_id"],
@@ -100,7 +108,9 @@ def main():
 
     vb = (OUT / "vectors.bin").stat().st_size / 1e6
     mb = (OUT / "meta.json").stat().st_size / 1e6
-    print(f"Wrote web/data/: vectors.bin {vb:.1f}MB, meta.json {mb:.1f}MB, config.json")
+    tb = (OUT / "texts.json.gz").stat().st_size / 1e6
+    print(f"Wrote web/data/: vectors.bin {vb:.1f}MB, meta.json {mb:.1f}MB, "
+          f"texts.json.gz {tb:.1f}MB, config.json")
 
 
 if __name__ == "__main__":
