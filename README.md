@@ -347,7 +347,7 @@ Three findings:
 2. **The guardrail still earns its place.** Citing more means more chances to cite something not retrieved (naked fabrication rose to 0.17, sometimes recalling training-time IDs); the guardrail zeroes it without costing recall. Distilled + guardrail is the best configuration measured.
 3. **Distillation teaches what the data contains — and only that.** The 2,050 training samples were all positive answer demonstrations; none demonstrated refusal. On the out-of-corpus probes the distilled model kept refusal where the topic supports it ("the essay makes no mention of GPT-style scaling laws" — a textbook decline, correctly cited) but *regressed on premise falseness*: asked about a fictional 2027 paper, it asserted the fictional result while citing the real 2026 paper — grounded-looking confabulation. This is exactly the failure the pre-generation refusal gate covers (three of the four probes score below its threshold and are refused before the model speaks), and exactly why the evaluation stack, not any single layer, is the product.
 
-Artifacts: the adapter and GGUF stay local (`data/distill/`, gitignored — the corpus content inside the training passages is not redistributable); the pipeline to reproduce them is in the repo.
+Artifacts: the model is published at [hf.co/xingyang-yu/cyber-witten-7b-GGUF](https://huggingface.co/xingyang-yu/cyber-witten-7b-GGUF) (Q4_K_M GGUF + LoRA adapter; weights only, no corpus text — the model card carries a hard warning that it is RAG-only, since bare chat turns the citation reflex into confident fabrication). `ollama run hf.co/xingyang-yu/cyber-witten-7b-GGUF` pulls it directly; the training data itself stays local (`data/distill/`, gitignored — teacher passages contain corpus text).
 
 ---
 
