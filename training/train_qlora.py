@@ -32,6 +32,18 @@ def main() -> None:
 
     import torch
     from datasets import load_dataset
+
+    def _pick_attn() -> str:
+        # flash-attn wheels are often unavailable on rented boxes (esp. domestic
+        # Chinese platforms); sdpa is ~10-20% slower but always works.
+        if torch.cuda.is_available():
+            try:
+                import flash_attn  # noqa: F401
+                return "flash_attention_2"
+            except ImportError:
+                print("flash-attn not installed; falling back to sdpa")
+        return "sdpa"
+
     from peft import LoraConfig
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
     from trl import SFTConfig, SFTTrainer
@@ -46,7 +58,7 @@ def main() -> None:
             bnb_4bit_compute_dtype=torch.bfloat16,
             bnb_4bit_use_double_quant=True,
         ),
-        attn_implementation="flash_attention_2" if torch.cuda.is_available() else "sdpa",
+        attn_implementation=_pick_attn(),
         torch_dtype=torch.bfloat16,
         device_map="auto",
     )
@@ -79,7 +91,9 @@ def main() -> None:
         eval_strategy="steps",
         eval_steps=50,
         logging_steps=10,
-        save_strategy="epoch",
+        save_strategy="steps",     # checkpoint often: rented hosts can die mid-run
+        save_steps=50,
+        save_total_limit=2,
         report_to="none",
         seed=20260717,
     )
@@ -92,7 +106,11 @@ def main() -> None:
         eval_dataset=data["val"],
         peft_config=lora,
     )
-    trainer.train()
+    import glob
+    has_ckpt = bool(glob.glob(f"{args.out}/checkpoint-*"))
+    if has_ckpt:
+        print("resuming from last checkpoint")
+    trainer.train(resume_from_checkpoint=has_ckpt)
     trainer.save_model(args.out)
     print(f"adapter saved to {args.out}")
 

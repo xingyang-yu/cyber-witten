@@ -63,13 +63,15 @@ llama.cpp/build/bin/llama-quantize cyber-witten-7b-f16.gguf cyber-witten-7b-Q4_K
 ```bash
 cat > Modelfile <<'EOF'
 FROM ./cyber-witten-7b-Q4_K_M.gguf
-PARAMETER num_ctx 8192
+PARAMETER num_ctx 10240
 EOF
 ollama create cyber-witten-7b -f Modelfile
 ```
 
-(`num_ctx 8192`: the serving prompt is ~5-6k tokens; ollama's 4096 default would
-silently truncate the passages.)
+(`num_ctx 10240`: the serving prompt is ~5-6k tokens — ollama's 4096 default
+would silently truncate the passages — and a guardrail retry appends the
+correction to the original prompt; 8192 was measured to overflow by ~100
+tokens on one gold question.)
 
 ## 6. Measure (the whole point)
 

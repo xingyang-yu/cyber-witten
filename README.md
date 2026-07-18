@@ -154,7 +154,7 @@ The BGE model is auto-resolved from `~/.cache/huggingface` if present, otherwise
 Two ways to use the corpus, split deliberately (the "no LLM API" goal makes free hosted *generation* impractical, so the online demo stays retrieval-only):
 
 - **Online demo** (`web/`) — **live at [xingyangyu.com/cyber-witten](https://xingyangyu.com/cyber-witten/)**. Runs *entirely in your browser*: transformers.js encodes the query (BGE-small), brute-force cosine over precomputed vectors, one hit per paper with arXiv links. No server of ours. By default retrieval-only; paste **your own API key** (Anthropic / OpenAI / DeepSeek / local Ollama / any OpenAI-compatible endpoint) and it also writes a grounded answer in the browser, checked by a JS port of the citation guardrail — cite-or-fail, with a visible grounded/ungrounded badge. The key stays in the tab and goes only to the chosen provider. Rebuild the data with `scripts/build_web_index.py`. (`space/` holds an equivalent Gradio app for local use; hosting it on HF now requires a paid plan, hence the static route.)
-- **Local QA app** (`app_local.py`). The full grounded experience, fully local and no API: retrieval + a local LLM (Ollama) + the [citation guardrail](#evaluation), answers cited by paper ID (clickable). Optional cross-encoder reranking, which also enables a pre-generation refusal gate (decline questions the corpus doesn't cover, before any LLM call). Generation runs on your machine, so a guarded query takes roughly 1-3 minutes.
+- **Local QA app** (`app_local.py`). The full grounded experience, fully local and no API: retrieval + a local LLM (Ollama) + the [citation guardrail](#evaluation), answers cited by paper ID (clickable). Works with stock `qwen2.5:7b`, or with the [distilled](#distilled-teaching-the-citation-reflex-14-total) `cyber-witten-7b` (`CW_MODEL=cyber-witten-7b python app_local.py`), which cites unprompted. Optional cross-encoder reranking, which also enables a pre-generation refusal gate (decline questions the corpus doesn't cover, before any LLM call). Generation runs on your machine, so a guarded query takes roughly 1-3 minutes.
   ```bash
   pip install gradio openai          # gradio = UI, openai = Ollama transport
   brew install ollama && ollama serve
@@ -330,6 +330,25 @@ Four results:
 
 Two scoring byproducts worth recording: one corpus chunk carries a parsing-induced physics error that the model then quoted *faithfully* ("hyper-Kähler structure on $C$" — the source means $\mathcal{M}_H$), a reminder that faithfulness inherits corpus quality; and the model's fabricated citations tend to digit-mangle real IDs (2605.15180 → 1605.08291), visually plausible but mechanically catchable.
 
+### Distilled: teaching the citation reflex ($14 total)
+
+The measured ceiling above motivated the last experiment: distill the grounded-answer behavior into a local model, so the discipline lives in the weights instead of the retry loop. Pipeline (`scripts/distill_gen.py`, `training/`): a teacher (DeepSeek V4) wrote 2,050 validator-gated (question, passages, cited-answer) triples over the corpus — gold questions strictly held out, plus an overlap guard — for ~$12 of API; QLoRA on Qwen2.5-7B-Instruct on a rented RTX 4090 for ~$2; merged, quantized to Q4_K_M (4.4 GB), served by ollama as `cyber-witten-7b`. Same 23 gold questions, same automated metrics:
+
+| run | fabricated cites ↓ | uncited ↓ | cite recall ↑ |
+|---|---|---|---|
+| base qwen2.5:7b, naked | 0.09 | 0.91 | 0.00 |
+| base + guardrail | 0.00 | 0.00 | 0.64 |
+| **distilled, naked** | 0.17 | **0.04** | **0.78** |
+| **distilled + guardrail** | **0.00** | **0.00** | **0.77** |
+
+Three findings:
+
+1. **The citation reflex transferred.** Naked, the distilled model cites unprompted — 0.91 → 0.04 uncited — and its citation recall (0.78) *beats the base model with the guardrail forcing it* (0.64). What previously required a mechanical retry loop is now an instinct.
+2. **The guardrail still earns its place.** Citing more means more chances to cite something not retrieved (naked fabrication rose to 0.17, sometimes recalling training-time IDs); the guardrail zeroes it without costing recall. Distilled + guardrail is the best configuration measured.
+3. **Distillation teaches what the data contains — and only that.** The 2,050 training samples were all positive answer demonstrations; none demonstrated refusal. On the out-of-corpus probes the distilled model kept refusal where the topic supports it ("the essay makes no mention of GPT-style scaling laws" — a textbook decline, correctly cited) but *regressed on premise falseness*: asked about a fictional 2027 paper, it asserted the fictional result while citing the real 2026 paper — grounded-looking confabulation. This is exactly the failure the pre-generation refusal gate covers (three of the four probes score below its threshold and are refused before the model speaks), and exactly why the evaluation stack, not any single layer, is the product.
+
+Artifacts: the adapter and GGUF stay local (`data/distill/`, gitignored — the corpus content inside the training passages is not redistributable); the pipeline to reproduce them is in the repo.
+
 ---
 
 ## Known limitations
@@ -351,7 +370,6 @@ Two scoring byproducts worth recording: one corpus chunk carries a parsing-induc
 - **Pre-1991 OCR cleanup pipeline.** Equation-aware OCR (Mathpix, Nougat) on the scan-quality outliers to lift retrieval quality on the 1976–1985 papers.
 - **Probe-set physics review.** Calibration flagged 7 suspect probes (see Known limitations); a physicist should adjudicate each — drop, rephrase, or reclassify as in-corpus — and the two confirmed-answerable ones suggest the corpus has quietly grown past the maintainer's mental model of it.
 - **Fine-tuned BGE.** Self-supervised contrastive fine-tune on (paper-title, abstract) pairs from the corpus to specialize the embedder for physics vocabulary. Open question whether the gain over the off-the-shelf checkpoint justifies the engineering.
-- **Distillation.** Train a small open-weight model on (question, retrieved-passages, grounded-answer) triples generated by Claude, for a fully-local end-to-end system. Possibly out of scope; included for discussion.
 
 ---
 

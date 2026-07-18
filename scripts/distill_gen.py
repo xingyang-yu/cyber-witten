@@ -86,6 +86,9 @@ def main() -> None:
     ap.add_argument("--answer-model", default=ANSWER_MODEL)
     ap.add_argument("--base-url", default=BASE_URL)
     ap.add_argument("--seed", type=int, default=SEED)
+    ap.add_argument("--fresh", action="store_true",
+                    help="Overwrite --out instead of resuming (default: resume — skip chunks "
+                         "already in the file and append until --limit total kept samples)")
     args = ap.parse_args()
 
     import os
@@ -109,7 +112,9 @@ def main() -> None:
         usage["calls"] += 1
         return resp.choices[0].message.content.strip()
 
-    # --- sample source chunks: one per paper, reproducible ---
+    # --- build the work list: interleaved passes over papers, a fresh chunk
+    # per paper per pass (the corpus has only ~293 papers, so a >293-sample run
+    # must revisit papers with different chunks), reproducible under --seed ---
     rng = random.Random(args.seed)
     rows = [json.loads(l) for l in (ROOT / "data/index/lookup.jsonl").open()]
     by_paper: dict[str, list[dict]] = {}
@@ -118,17 +123,35 @@ def main() -> None:
             by_paper.setdefault(r["arxiv_id"], []).append(r)
     papers = sorted(by_paper)
     rng.shuffle(papers)
+    for p in papers:
+        rng.shuffle(by_paper[p])
+    max_pass = max(len(v) for v in by_paper.values())
+    work = [(p, by_paper[p][i]) for i in range(max_pass) for p in papers if i < len(by_paper[p])]
+
+    # --- resume: skip chunks already in the output, append until --limit total ---
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    used_chunks: set[str] = set()
+    kept = 0
+    if args.out.exists() and not args.fresh:
+        for line in args.out.open():
+            rec = json.loads(line)
+            used_chunks.add(rec.get("source_chunk_id", ""))
+            kept += 1
+        if kept:
+            print(f"resuming: {kept} samples already in {args.out.name}, "
+                  f"target {args.limit} total", flush=True)
 
     gold_sets = load_gold_word_sets()
     retrieve = build_retriever(K)
 
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    kept, rejected = 0, {"empty-question": 0, "ungrounded": 0, "uncited": 0, "gold-overlap": 0, "error": 0}
-    with args.out.open("w") as fout:
-        for paper in papers:
+    rejected = {"empty-question": 0, "ungrounded": 0, "uncited": 0, "gold-overlap": 0, "error": 0}
+    consecutive_errors = 0
+    with args.out.open("w" if (args.fresh or not used_chunks) else "a") as fout:
+        for paper, chunk in work:
             if kept >= args.limit:
                 break
-            chunk = rng.choice(by_paper[paper])
+            if chunk["chunk_id"] in used_chunks:
+                continue
             try:
                 question = chat(args.question_model, None, QUESTION_PROMPT.format(
                     title=chunk["title"], year=chunk["year"], text=chunk["text"][:4000]), max_tokens=2048)
@@ -159,6 +182,7 @@ def main() -> None:
                 fout.write(json.dumps({
                     "question": question,
                     "source_paper": paper,
+                    "source_chunk_id": chunk["chunk_id"],
                     "source_in_topk": paper in rids,
                     "retrieved_ids": rids,
                     "passages": [{"score": s, **{k: p[k] for k in ("arxiv_id", "title", "year", "text")}}
@@ -173,7 +197,15 @@ def main() -> None:
                 print(f"  [{kept}/{args.limit}] {paper}: {question[:80]}", flush=True)
             except Exception as exc:
                 rejected["error"] += 1
+                consecutive_errors += 1
                 print(f"  ! {paper}: {type(exc).__name__}: {exc}", flush=True)
+                if consecutive_errors >= 10:
+                    print("ABORT: 10 consecutive errors (exhausted balance or API outage). "
+                          "Top up / wait, then rerun the same command — resume will continue.",
+                          flush=True)
+                    break
+                continue
+            consecutive_errors = 0
 
     total_rej = sum(rejected.values())
     print(f"\nkept {kept}, rejected {total_rej} {rejected}")
