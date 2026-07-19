@@ -315,7 +315,7 @@ The same check also runs **live at serving time**: `ask.py --guardrail` (and the
 
 Full expert-scored run: 23 gold questions × 3 conditions on qwen2.5:7b via Ollama. Human columns (correctness / faithfulness / refusal) on a 0–2 scale, scored by a physicist with triage assistance from an independent second-model review pass; automated columns from the validator. Faithfulness is N/A closed-book (no passages) and not scored for nonresponsive (c=0) answers.
 
-| condition | fabricated cites ↓ | uncited ↓ | cite recall ↑ | correctness ↑ | faithfulness ↑ | refusal ↑ |
+| condition | ungrounded cites ↓ | uncited ↓ | cite recall ↑ | correctness ↑ | faithfulness ↑ | refusal ↑ |
 |---|---|---|---|---|---|---|
 | closed_book | 0.17 | 0.83 | 0.05 | 0.16 | — | 1.25 |
 | rag | 0.09 | 0.91 | 0.00 | 0.42 | 1.00 | 0.00 |
@@ -324,17 +324,17 @@ Full expert-scored run: 23 gold questions × 3 conditions on qwen2.5:7b via Olla
 Four results:
 
 1. **Grounding buys correctness, not just citation hygiene.** RAG nearly triples closed-book correctness (0.16 → 0.42 of 2); the guardrail adds more (0.53).
-2. **The guardrail's biggest win is faithfulness** (1.00 → 1.88 of 2): forcing citations forces the prose to stay on the passages. It also zeroes both failure modes it targets — fabricated citations and uncited answers — lifting expected-citation recall from 0.00 to 0.64.
+2. **The guardrail's biggest win is faithfulness** (1.00 → 1.88 of 2): forcing citations forces the prose to stay on the passages. It also zeroes both failure modes it targets — ungrounded citations and uncited answers — lifting expected-citation recall from 0.00 to 0.64.
 3. **The honest ceiling is 0.53 of 2.** With near-perfect retrieval (0.94) and enforced citations, a 7B model still anchors on tangential passages and stays physics-shallow. Grounding machinery cannot supply depth; that comes from the model.
 4. **Retrieval destroys refusal.** On out-of-corpus probes the closed-book model at least hedges (1.25 of 2), while *both* RAG conditions score 0.00 — shown relevant passages, the model answers them instead of questioning the premise. This is exactly the failure the pre-generation refusal gate exists to catch; it was off in this run for clean attribution and is measured separately above.
 
-Two scoring byproducts worth recording: one corpus chunk carries a parsing-induced physics error that the model then quoted *faithfully* ("hyper-Kähler structure on $C$" — the source means $\mathcal{M}_H$), a reminder that faithfulness inherits corpus quality; and the model's fabricated citations tend to digit-mangle real IDs (2605.15180 → 1605.08291), visually plausible but mechanically catchable.
+Two scoring byproducts worth recording: one corpus chunk carries a parsing-induced physics error that the model then quoted *faithfully* ("hyper-Kähler structure on $C$" — the source means $\mathcal{M}_H$), a reminder that faithfulness inherits corpus quality; and some of the model's ungrounded citations are outright fabrications that digit-mangle real IDs (2605.15180 → 1605.08291), visually plausible but mechanically catchable. (An INSPIRE audit of all flagged citations found about half were real papers cited off-passage, the rest genuinely fabricated — see `evals/citation_audit.md`; "ungrounded" is the honest umbrella, "fabricated" only the nonexistent subset.)
 
 ### Distilled: teaching the citation reflex ($14 total)
 
 The measured ceiling above motivated the last experiment: distill the grounded-answer behavior into a local model, so the discipline lives in the weights instead of the retry loop. Pipeline (`scripts/distill_gen.py`, `training/`): a teacher (DeepSeek V4) wrote 2,050 validator-gated (question, passages, cited-answer) triples over the corpus — gold questions strictly held out, plus an overlap guard — for ~$12 of API; QLoRA on Qwen2.5-7B-Instruct on a rented RTX 4090 for ~$2; merged, quantized to Q4_K_M (4.4 GB), served by ollama as `cyber-witten-7b`. Same 23 gold questions, same automated metrics:
 
-| run | fabricated cites ↓ | uncited ↓ | cite recall ↑ |
+| run | ungrounded cites ↓ | uncited ↓ | cite recall ↑ |
 |---|---|---|---|
 | base qwen2.5:7b, naked | 0.09 | 0.91 | 0.00 |
 | base + guardrail | 0.00 | 0.00 | 0.64 |
@@ -344,10 +344,10 @@ The measured ceiling above motivated the last experiment: distill the grounded-a
 Three findings:
 
 1. **The citation reflex transferred.** Naked, the distilled model cites unprompted — 0.91 → 0.04 uncited — and its citation recall (0.78) *beats the base model with the guardrail forcing it* (0.64). What previously required a mechanical retry loop is now an instinct.
-2. **The guardrail still earns its place.** Citing more means more chances to cite something not retrieved (naked fabrication rose to 0.17, sometimes recalling training-time IDs); the guardrail zeroes it without costing recall. Distilled + guardrail is the best configuration measured.
+2. **The guardrail still earns its place.** Citing more means more chances to cite something not retrieved (naked ungrounded rate rose to 0.17, sometimes recalling real training-time IDs); the guardrail zeroes it without costing recall. Distilled + guardrail is the best configuration measured.
 3. **Distillation teaches what the data contains — and only that.** The 2,050 training samples were all positive answer demonstrations; none demonstrated refusal. On the out-of-corpus probes the distilled model kept refusal where the topic supports it ("the essay makes no mention of GPT-style scaling laws" — a textbook decline, correctly cited) but *regressed on premise falseness*: asked about a fictional 2027 paper, it asserted the fictional result while citing the real 2026 paper — grounded-looking confabulation. This is exactly the failure the pre-generation refusal gate covers (three of the four probes score below its threshold and are refused before the model speaks), and exactly why the evaluation stack, not any single layer, is the product.
 
-Artifacts: the model is published at [hf.co/xingyang-yu/cyber-witten-7b-GGUF](https://huggingface.co/xingyang-yu/cyber-witten-7b-GGUF) (Q4_K_M GGUF + LoRA adapter; weights only, no corpus text — the model card carries a hard warning that it is RAG-only, since bare chat turns the citation reflex into confident fabrication). `ollama run hf.co/xingyang-yu/cyber-witten-7b-GGUF` pulls it directly; the training data itself stays local (`data/distill/`, gitignored — teacher passages contain corpus text).
+Artifacts: the model is published at [hf.co/xingyang-yu/cyber-witten-7b-GGUF](https://huggingface.co/xingyang-yu/cyber-witten-7b-GGUF) (Q4_K_M GGUF + LoRA adapter; weights only, no corpus text — the model card carries a hard warning that it is RAG-only, since bare chat turns the citation reflex into confident, ungrounded citation). `ollama run hf.co/xingyang-yu/cyber-witten-7b-GGUF` pulls it directly; the training data itself stays local (`data/distill/`, gitignored — teacher passages contain corpus text).
 
 ---
 
@@ -394,7 +394,7 @@ Artifacts: the model is published at [hf.co/xingyang-yu/cyber-witten-7b-GGUF](ht
 │   ├── bge_embed.py
 │   ├── llm_backends.py
 │   ├── rerank.py        cross-encoder rerank + pre-generation refusal gate
-│   ├── guardrail.py     live citation guardrail (fabrication + omission) + tests
+│   ├── guardrail.py     live citation guardrail (grounding + omission) + tests
 │   ├── build_web_index.py   BGE-small vectors + meta for the browser demo
 │   ├── healthcheck.py
 │   └── export_public.py
