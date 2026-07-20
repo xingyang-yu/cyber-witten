@@ -7,6 +7,7 @@ Reads IDs from /tmp/missing_arxiv_ids.txt.
 """
 import importlib.util
 import json
+import re
 import time
 from pathlib import Path
 
@@ -101,17 +102,79 @@ def download_source(aid):
     return False
 
 
-def parse_paper(aid, meta):
+_TEX_CMD = re.compile(r"\\[a-zA-Z]+\*?")
+
+
+def _crude_detex(latex, whole=False):
+    """Regex-only LaTeX->text salvage for docs pylatexenc chokes on. Loses math
+    structure but keeps the prose, which is enough for retrieval."""
+    if not whole:
+        m = re.search(r"\\begin\{document\}", latex)
+        if m:
+            latex = latex[m.end():]
+        m = re.search(r"\\end\{document\}", latex)
+        if m:
+            latex = latex[: m.start()]
+    latex = re.sub(r"(?<!\\)%.*", "", latex)
+    latex = re.sub(r"\\(section|subsection|subsubsection|title|abstract)\*?\s*\{([^{}]*)\}", r" \2 ", latex)
+    latex = re.sub(r"\\(cite|ref|label|eqref|footnote|includegraphics|bibliography\w*|bibliographystyle)\s*\{[^}]*\}", " ", latex)
+    latex = re.sub(r"\\(begin|end)\{[^}]*\}", " ", latex)
+    latex = _TEX_CMD.sub(" ", latex)
+    latex = re.sub(r"[{}$]", " ", latex)
+    return re.sub(r"\s+", " ", latex).strip()
+
+
+def _pdf_text(pdf_path):
+    try:
+        import pdfplumber
+        with pdfplumber.open(pdf_path) as pdf:
+            return "\n".join(p.extract_text() or "" for p in pdf.pages)
+    except Exception:
+        return ""
+
+
+def _arxiv_pdf(aid):
+    """Last resort: fetch the arXiv PDF when no usable TeX source exists."""
+    dest = SOURCES / f"{safe_filename(aid)}.pdf"
+    if not dest.exists() or dest.stat().st_size < 2000:
+        try:
+            r = requests.get(f"https://arxiv.org/pdf/{aid}",
+                             headers={"User-Agent": USER_AGENT}, timeout=120)
+            if not (r.status_code == 200 and r.content[:4] == b"%PDF"):
+                return ""
+            dest.write_bytes(r.content)
+        except Exception:
+            return ""
+    return _pdf_text(dest)
+
+
+def robust_text(aid):
+    """Cheapest route to >=50 words: pylatexenc -> crude de-TeX (body, whole) ->
+    PDF (source, then arXiv). Returns (text, method). Fixes single-.tex.gz,
+    pylatexenc-choking, and PDF-only-source papers that the TeX-only path drops."""
     src_path = SOURCES / f"{safe_filename(aid)}.src"
     if not src_path.exists():
-        return []
-    tex_files = p3.detect_and_extract(src_path.read_bytes())
-    if not tex_files:
-        return []
-    main_pair = p3.find_main(tex_files)
-    if not main_pair:
-        return []
-    text = p3.latex_to_text(main_pair[1])
+        return "", "no_src"
+    raw = src_path.read_bytes()
+    if raw[:4] == b"%PDF":
+        return _pdf_text(src_path), "pdf_src"
+    tex = p3.detect_and_extract(raw)
+    main = p3.find_main(tex) if tex else None
+    if main:
+        body = main[1]
+        t = p3.latex_to_text(body)
+        if len(t.split()) >= 50:
+            return t, "pylatexenc"
+        for whole in (False, True):
+            t = _crude_detex(body, whole=whole)
+            if len(t.split()) >= 50:
+                return t, "detex_whole" if whole else "detex_body"
+    t = _arxiv_pdf(aid)
+    return (t, "arxiv_pdf") if len(t.split()) >= 50 else ("", "failed")
+
+
+def parse_paper(aid, meta):
+    text, _method = robust_text(aid)
     if len(text.split()) < 50:
         return []
     chunks = p3.chunk_text(text)
