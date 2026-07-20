@@ -1,0 +1,72 @@
+{
+ "1601.03987": {
+  "exists": false,
+  "source": "inspire",
+  "title": null
+ },
+ "1605.08291": {
+  "exists": false,
+  "source": "inspire",
+  "title": null
+ },
+ "1803.04574": {
+  "exists": true,
+  "source": "inspire",
+  "title": "Boosting Computational Power through Spatial Multiplexing in Quantum Reservoir Computing"
+ },
+ "1803.04576": {
+  "exists": false,
+  "source": "inspire",
+  "title": null
+ },
+ "2206.10790": {
+  "exists": false,
+  "source": "inspire",
+  "title": null
+ },
+ "2306.10780": {
+  "exists": false,
+  "source": "inspire",
+  "title": null
+ },
+ "2507.06945": {
+  "exists": true,
+  "source": "inspire",
+  "title": "Inverse seesaw model in nonholomorphic modular <math display=\"inline\"><mrow><msub><mrow><mi>A</mi></mrow><mrow><mn>4</mn></mrow></msub></mrow></math> flavor symmetry"
+ },
+ "hep-th/9109055": {
+  "exists": true,
+  "source": "inspire",
+  "title": "Deformations, symmetries and topological degrees of freedom of the string"
+ },
+ "hep-th/9205140": {
+  "exists": false,
+  "source": "inspire",
+  "title": null
+ },
+ "hep-th/9606101": {
+  "exists": true,
+  "source": "inspire",
+  "title": "The Dispersive selfdual Einstein equations and the Toda lattice"
+ },
+ "hep-th/9804195": {
+  "exists": true,
+  "source": "inspire",
+  "title": "Renormalization group improved thermal coupling constant in an external field"
+ },
+ "hep-th/9807022": {
+  "exists": true,
+  "source": "inspire",
+  "title": "Screening in supersymmetric gauge theories in two-dimensions"
+ },
+ "hep-th/9812208": {
+  "exists": true,
+  "source": "inspire",
+  "title": "A Simplified version of higher covariant derivative regularization"
+ },
+ "math-ph/0212366": {
+  "exists": false,
+  "source": "inspire",
+  "title": null
+ }
+}
